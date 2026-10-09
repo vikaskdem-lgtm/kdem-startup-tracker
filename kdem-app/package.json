@@ -1,0 +1,10 @@
+{
+  "name": "kdem-startup-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KDEM Startup Karnataka ecosystem tracker — Vercel + Supabase, live Google-Form sync, admin-approved email.",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@supabase/supabase-js": "2.45.4"
+  }
+}
