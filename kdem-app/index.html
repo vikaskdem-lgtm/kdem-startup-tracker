@@ -2359,29 +2359,98 @@ window.__startApp=boot;
     collection:function(path){return {
       onSnapshot:function(cb,err){
         let cache=[];
-        const emit=function(){
-          clearTimeout(deb);
-          deb=setTimeout(function(){
-            cb({empty:cache.length===0,docs:cache.map(function(r){return {id:r.id,data:function(){return r.data;}};})});
-          },200);
+        // ---- instant paint ------------------------------------------------
+        // The slowest part of "opening the dashboard" used to be waiting for
+        // the first network round-trip. We keep the last known rows in this
+        // browser and paint them immediately, then refresh from the server in
+        // the background. Storage is per-browser and may be blocked, so every
+        // read and write is guarded.
+        const CKEY='kdem_rows_v1';
+        const readCache=function(){
+          try{
+            const s=localStorage.getItem(CKEY); if(!s)return null;
+            const o=JSON.parse(s);
+            if(!o||!Array.isArray(o.rows)||!o.rows.length)return null;
+            return o.rows;
+          }catch(e){return null;}
         };
+        const writeCache=function(rows){
+          try{
+            const s=JSON.stringify({at:Date.now(),rows:rows});
+            // keep well inside the ~5MB localStorage budget
+            if(s.length<3000000)localStorage.setItem(CKEY,s);
+            else localStorage.removeItem(CKEY);
+          }catch(e){try{localStorage.removeItem(CKEY);}catch(e2){}}
+        };
+        const fire=function(){
+          cb({empty:cache.length===0,docs:cache.map(function(r){return {id:r.id,data:function(){return r.data;}};})});
+        };
+        const emit=function(){ clearTimeout(deb); deb=setTimeout(fire,200); };
+        const emitNow=function(){ clearTimeout(deb); fire(); };
+
+        const seeded=readCache();
+        if(seeded){ cache=seeded; emitNow(); }
+
+        // ---- loader --------------------------------------------------------
+        // Supabase caps any single response at 1000 rows. We ask for the row
+        // count first (index-only, cheap), then pull the remaining pages a few
+        // at a time in parallel instead of one after another. At 22k rows that
+        // is the difference between ~22 sequential round-trips and ~6 waves.
+        const PAGE=1000, CONC=4;
+        const q=function(from){
+          return sb.from('startups').select('id,data')
+                   .order('updated_at',{ascending:false})
+                   .order('id',{ascending:true})   // stable tiebreak: no gaps/dupes across pages
+                   .range(from,from+PAGE-1);
+        };
+        let loading=false;
         const load=async function(){
-          // Supabase caps any single response at 1000 rows, so page through.
-          const PAGE=1000; let from=0; const all=[];
-          for(;;){
-            const {data,error}=await sb.from('startups').select('id,data')
-              .order('updated_at',{ascending:false}).range(from,from+PAGE-1);
-            if(error){if(err)err(mapErr(error));return;}
-            const batch=data||[];
-            for(let i=0;i<batch.length;i++)all.push({id:batch[i].id,data:batch[i].data});
-            cache=all.slice();
-            emit();                         // show this page immediately
-            if(batch.length<PAGE)break;
-            from+=PAGE;
-            if(from>60000)break;            // hard stop, never an infinite loop
-          }
-          cache=all;
-          emit();
+          if(loading)return; loading=true;
+          try{
+            let total=null;
+            try{
+              const r=await sb.from('startups').select('id',{count:'exact',head:true});
+              if(typeof r.count==='number')total=r.count;
+            }catch(e){}
+
+            const first=await q(0);
+            if(first.error){ if(err)err(mapErr(first.error)); return; }
+            const seen=Object.create(null); const all=[];
+            const push=function(list){
+              for(let i=0;i<list.length;i++){
+                const r=list[i];
+                if(seen[r.id])continue;
+                seen[r.id]=1; all.push({id:r.id,data:r.data});
+              }
+            };
+            push(first.data||[]);
+            cache=all.slice(); emitNow();            // show page 1 the moment it lands
+
+            const more=(total==null) ? ((first.data||[]).length===PAGE) : (total>PAGE);
+            if(more){
+              if(total!=null){
+                const offs=[];
+                for(let f=PAGE;f<total;f+=PAGE)offs.push(f);
+                for(let i=0;i<offs.length;i+=CONC){
+                  const got=await Promise.all(offs.slice(i,i+CONC).map(q));
+                  for(let k=0;k<got.length;k++){ if(!got[k].error)push(got[k].data||[]); }
+                  cache=all.slice(); emitNow();
+                }
+              }else{
+                // no count available: fall back to sequential paging
+                let f=PAGE;
+                for(;;){
+                  const r=await q(f);
+                  if(r.error)break;
+                  const batch=r.data||[]; push(batch);
+                  cache=all.slice(); emitNow();
+                  if(batch.length<PAGE)break;
+                  f+=PAGE; if(f>60000)break;
+                }
+              }
+            }
+            cache=all; emitNow(); writeCache(all);
+          }finally{ loading=false; }
         };
         load();
         // Apply each change in place instead of refetching every row — this is
@@ -2396,13 +2465,16 @@ window.__startApp=boot;
                 const i=cache.findIndex(function(r){return r.id===row.id;});
                 if(i<0)cache.unshift(row); else cache[i]=row;
               }
-              emit();
+              emit(); writeCache(cache);
             }catch(e){clearTimeout(deb);deb=setTimeout(load,400);}
           })
           .subscribe(function(status){ if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){setTimeout(load,2000);} });
         // safety net: reconcile with the server every few minutes
         const poll=setInterval(load,180000);
-        return function(){try{clearInterval(poll);sb.removeChannel(ch);}catch(e){}};
+        // and whenever the operator comes back to the tab
+        const onVis=function(){ if(document.visibilityState==='visible')load(); };
+        document.addEventListener('visibilitychange',onVis);
+        return function(){try{clearInterval(poll);document.removeEventListener('visibilitychange',onVis);sb.removeChannel(ch);}catch(e){}};
       },
       deleteMany:async function(ids){
         const SIZE=200;

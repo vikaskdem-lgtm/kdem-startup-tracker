@@ -337,3 +337,122 @@ this; only the records that upload created are removed. (For a complete rollback
 the most recent import, use **Undo this import** instead.)
 
 ### No SQL needed for this build.
+
+---
+
+## Build 6 — trimmed to the called list, and a much faster database
+
+This build was done with the Supabase connector wired directly into Claude, so
+the database was inspected and tuned live rather than through hand-run scripts.
+
+### What the database actually contained
+
+Before anything was changed, here is what was in `startups`:
+
+| | rows |
+|---|---|
+| Original startups your team has called (ids `s0001`–`s0460`) | **436** |
+| Imported rows from the 13-Oct upload, called / No Response | **3** |
+| Imported rows never called | **883** |
+| **Total** | **1322** |
+
+Two things worth knowing:
+
+**It is 436 originals, not 460.** The other 24 are not lost — they were
+duplicates that got absorbed when you ran **Merge**. 76 records in the table
+carry a merge entry in their history. So 436 is the correct de-duplicated count
+of the original 460, and re-adding the missing 24 would just put the duplicates
+back. Nothing was dropped.
+
+**The 883 deleted rows were all from the 13-Oct import** and none of them had
+ever been called. This was checked before deleting: the number of records with
+a pre-October date that had never been called was **zero**, so no genuine
+original record was inside the delete set.
+
+### Everything is recoverable
+
+A complete copy of all 1322 rows was taken first, into
+`public.startups_backup_20261013` (admin-read only, RLS on). The restore
+command is at the bottom of `supabase/04-final-cleanup.sql`. Drop the table
+once you are confident, in a few weeks.
+
+### Why loading was slow, and what changed
+
+Four separate causes, all now fixed:
+
+**1. Every read was also running a permission check, per row.** The
+`startups_write` policy was declared `FOR ALL`, and in Postgres `ALL` includes
+`SELECT`. So every row returned by a dashboard load was being checked against
+`is_editor()`, which queries the `profiles` table. Loading 1000 rows meant 1000
+permission lookups on top of the actual read. It is now split into separate
+INSERT / UPDATE / DELETE policies, so reads evaluate one `true` and stop. This
+was the largest single cause.
+
+**2. The read was sorting the whole table.** Added a composite index on exactly
+the order the app pages in, `(updated_at desc, id asc)`. The sort step
+disappeared from the query plan:
+
+```
+before:  Incremental Sort -> Index Scan     Execution Time: 6.347 ms
+after:   Index Scan using startups_page_idx Execution Time: 2.063 ms
+```
+
+**3. Pages were fetched one after another.** Supabase caps any single response
+at 1000 rows, so the app has to page. It used to wait for each page before
+asking for the next. It now asks for the row count first, then fetches the
+remaining pages four at a time. At 22,000 startups that is ~6 waves instead of
+22 sequential round-trips. Paging also got a stable tiebreak (`id asc`) and
+de-duplication by id, so a row can never appear twice or be skipped if someone
+edits during a load.
+
+**4. The first paint waited for the network.** The rows you last saw are now
+kept in your browser and painted immediately on open, then refreshed from the
+server in the background. Opening the dashboard shows data straight away
+instead of an empty table. The cache is per-browser, never shared, capped at
+3 MB, and every read and write of it is guarded — in a private window, or with
+storage blocked, the app simply loads from the network as before.
+
+Also added: the table refreshes when you switch back to the tab, and two
+duplicate indexes were dropped (duplicates cost write time and buy nothing).
+
+### Security findings fixed
+
+The Supabase linter flagged these; all are now closed:
+
+- `handle_new_user()` is a trigger function but was callable by **anyone, signed
+  in or not**, over the REST API as a `SECURITY DEFINER` function. `EXECUTE`
+  revoked from `anon` and `authenticated`.
+- `is_editor()` was callable by `anon`. Revoked; signed-in users only.
+- `email_queue` had RLS on but no policy at all. Admins can now read it; writes
+  stay service-role only.
+- The admin policies re-evaluated `auth.uid()` once per row. Wrapped in
+  `(select auth.uid())` so it runs once per query.
+
+One finding is left for you, because it is a dashboard toggle and not SQL:
+**leaked-password protection is off.** Turn it on at Authentication → Policies
+in the Supabase dashboard; it checks new passwords against known-breached lists.
+
+### SQL to run (once) — required
+
+Open `supabase/04-final-cleanup.sql`, paste the whole thing into Supabase →
+SQL Editor → New query → **Run**.
+
+The indexes, the new policies, the permission revokes and the backup table are
+**already applied** — they were done live over the connector. What that file
+still has to do is the parts that need your approval: the **delete of the 883
+uncalled rows**, dropping the two old `FOR ALL` policies, and dropping the
+redundant indexes. It is safe to re-run end to end, and it prints a before
+count, then a verification report at the end.
+
+Expect the final report to read: `remaining 439, originals 436, called 437,
+no_response 2, not_called 0, backup_rows 1322`.
+
+### Tests
+
+93 automated tests across five suites, all passing — the 64 from earlier builds
+plus 29 new ones covering the loader: paging at 22,000 rows, parallelism capped
+at 4, no duplicate or skipped rows across page boundaries, instant paint from
+cache while the network is still pending, storage-blocked browsers, missing row
+count falling back to sequential paging, a failed page not taking the rest down,
+realtime insert/update/delete reconciliation, refresh on tab refocus, and clean
+unsubscribe.
