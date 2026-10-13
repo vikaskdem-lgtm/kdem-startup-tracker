@@ -134,8 +134,18 @@ create policy eq_admin_read on public.email_queue
                  where p.id = (select auth.uid()) and p.role = 'admin'));
 
 
--- ------------------------------------------------ 6. RECLAIM & RE-ANALYZE
-vacuum (analyze) public.startups;
+-- ------------------------------------------------------- 6. RE-ANALYZE
+-- NOTE: do NOT put VACUUM here. The Supabase SQL Editor runs everything you
+-- paste as a single transaction, and VACUUM cannot run inside one — it fails
+-- with "ERROR: 25001: VACUUM cannot run inside a transaction block" and rolls
+-- the WHOLE file back, including the delete above. ANALYZE is transaction-safe
+-- and is the part that matters for query speed.
+analyze public.startups;
+
+-- If you want the disk space back right away, run this on its own afterwards,
+-- in an empty query tab with nothing else in it:
+--     vacuum (analyze) public.startups;
+-- Skipping it is fine; autovacuum reclaims the space within a day.
 
 
 -- -------------------------------------------------------- 7. VERIFICATION

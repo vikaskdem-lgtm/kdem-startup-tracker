@@ -456,3 +456,115 @@ cache while the network is still pending, storage-blocked browsers, missing row
 count falling back to sequential paging, a failed page not taking the rest down,
 realtime insert/update/delete reconciliation, refresh on tab refocus, and clean
 unsubscribe.
+
+---
+
+## Build 7 — four new admins, and a hardening pass
+
+### New accounts
+
+Four admin accounts were created. All four are email-confirmed and ready to
+sign in immediately; each password was verified against the stored hash.
+
+| Email | Role |
+|---|---|
+| suvin@karnatakadigital.in | admin |
+| bharath.chandra@karnatakadigital.in | admin |
+| omar.saud@karnatakadigital.in | admin |
+| associate.kan@karnatakadigital.in | admin |
+
+Passwords follow the pattern agreed: first name + `123@kdem`. **Please read the
+password note at the end of this section.**
+
+### A bug this surfaced
+
+The app decided who counts as an admin by comparing against a single hardcoded
+email (`ADMIN_EMAIL`). Anyone else made admin in the database would still have
+been shown as "Editor" in the header. Worse, the app force-set the displayed
+name to "Vikas Vishwakarma" for anyone it considered an owner — so once the
+four new admins were recognised, all four would have appeared under Vikas's
+name in the header and the activity log.
+
+Both are fixed. `isOwner()` now reflects the actual role in the `profiles`
+table, and display names are derived from the email when an account has no
+full name set (`bharath.chandra@…` → "Bharath Chandra"). A real name in the
+account metadata still wins.
+
+### Security fixes
+
+**The weekly-email endpoint was open to the public.** `api/cron-weekly.js`
+guarded itself with `if (CRON_SECRET && supplied !== CRON_SECRET)`. The leading
+`CRON_SECRET &&` meant that whenever the variable was not configured, the check
+was skipped entirely and anyone who knew the URL could run the job, read the
+whole startup table and trigger an email to the admin. It now refuses with 503
+when the secret is missing, and compares in constant time.
+
+> **Action needed:** make sure `CRON_SECRET` is set in Vercel → Settings →
+> Environment Variables. The endpoint now fails closed, so if it is missing the
+> weekly email stops rather than running unprotected. Vercel sends the value
+> automatically as a Bearer token once it is defined.
+
+**The form webhook could become an open endpoint.** `FORM_WEBHOOK_SECRET` being
+blank would have let a blank incoming header match it. It now refuses unless
+the secret is actually configured.
+
+**The weekly summary only counted the first 1000 startups**, because it never
+paged past Supabase's response cap. It pages now — harmless at 439, wrong at
+22,000.
+
+`api/email-request.js` was already correct: it rejects unauthenticated callers
+and viewers, and validates the JWT server-side.
+
+### Database hardening
+
+Applied live:
+
+- `handle_new_user()` was callable over the REST API by **anyone, signed in or
+  not**, as a `SECURITY DEFINER` function. `EXECUTE` revoked.
+- `is_editor()` was callable by `anon`. Revoked.
+- `email_queue` had RLS enabled with no policy at all. Admins can read it now;
+  writes stay service-role only.
+- Admin policies re-evaluated `auth.uid()` once per row. Wrapped in
+  `(select auth.uid())`.
+- A `private` schema was added with `private.is_editor()` in it.
+
+### SQL to run (once)
+
+`supabase/05-harden.sql` — repoints the policies at `private.is_editor()` and
+drops the public copy, so it is no longer published as an API endpoint at
+`/rest/v1/rpc/is_editor`. It needs `DROP`, which is why it is a file rather
+than already applied. No `VACUUM`, so it runs as one transaction safely.
+
+That file also carries, commented out, the statement to demote the intern
+account and the statement to change any password later.
+
+### Still to do by hand
+
+- **`CRON_SECRET` in Vercel** (above) — otherwise the weekly email stops.
+- **Leaked-password protection** — Supabase → Authentication → Policies. It
+  checks new passwords against known-breached lists. Dashboard toggle only.
+
+### A note on the passwords
+
+`firstname123@kdem` is predictable: the first name is already in the email
+address, so anyone who learns the pattern from one account can derive the other
+three. These are **admin** accounts — each can delete all 439 startups and
+change everyone else's role. They were also typed into a chat.
+
+Recommended, in order of value:
+
+1. Have each person change their password on first sign-in.
+2. Give `editor` rather than `admin` to anyone who only needs to record calls
+   and edit records. Editors can do all the day-to-day work; they just cannot
+   delete the dataset or change roles. `intern.si@karnatakadigital.in`
+   currently has admin and is the clearest candidate — the SQL is in
+   `05-harden.sql`.
+3. Turn on leaked-password protection before the next account is made.
+
+### Tests
+
+132 automated tests, all passing: the 93 from earlier builds, 24 new ones for
+role and display-name resolution (each new admin is a real admin, nobody is
+mislabelled as Vikas, editors and viewers are correctly held back), and 15 for
+the endpoint guards (unset secret refuses, wrong secret refuses, truncated
+secret refuses, correct secret passes, unauthenticated email requests refused).

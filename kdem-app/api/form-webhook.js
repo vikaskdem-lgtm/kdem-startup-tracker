@@ -6,7 +6,11 @@ const { mapAnswers, blankStartup, norm, simNames, toCluster } = require('../lib/
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
-  if ((req.headers['x-webhook-secret'] || '') !== process.env.FORM_WEBHOOK_SECRET)
+  // Require the secret to actually be configured: an unset or blank
+  // FORM_WEBHOOK_SECRET must not become an open endpoint.
+  const formSecret = process.env.FORM_WEBHOOK_SECRET || '';
+  if (!formSecret) return res.status(503).json({ error: 'webhook_secret_not_configured' });
+  if ((req.headers['x-webhook-secret'] || '') !== formSecret)
     return res.status(401).json({ error: 'unauthorized' });
 
   const body = await readJson(req);

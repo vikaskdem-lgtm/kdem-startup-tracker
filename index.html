@@ -2269,7 +2269,7 @@ async function boot(){
     try{S.me=await user.id();}catch(e){}
     let isOwner=false;try{isOwner=!!(user.isOwner&&user.isOwner());}catch(e){}
     try{const meObj=await user.me();S.meName=(meObj&&(meObj.name||meObj.displayName))||'';}catch(e){}
-    if(isOwner)S.meName=ADMIN_NAME; // this tracker's admin is Vikas Vishwakarma
+    if(!S.meName&&isOwner)S.meName=ADMIN_NAME; // only as a last resort
     try{const w=user.can?user.can('data.write'):null;S.canWrite=(w===true)||(user.canEdit&&user.canEdit())||isOwner;}catch(e){S.canWrite=false;}
     renderWho();
   }
@@ -2339,8 +2339,18 @@ window.__startApp=boot;
   function mapErr(e){return {code:'invalid_argument',message:(e&&e.message)||'write failed'};}
   const userCap={
     async id(){return session.user.id;},
-    async me(){return {name:(session.user.user_metadata&&session.user.user_metadata.full_name)||email};},
-    isOwner(){return isAdmin;},
+    async me(){
+      const meta=session.user.user_metadata||{};
+      let nm=meta.full_name||meta.name||'';
+      if(!nm&&email){
+        // suvin -> Suvin ; bharath.chandra -> Bharath Chandra
+        nm=email.split('@')[0].replace(/[._-]+/g,' ').trim()
+             .replace(/\s+/g,' ')
+             .replace(/\b[a-z]/g,function(c){return c.toUpperCase();});
+      }
+      return {name:nm||email};
+    },
+    isOwner(){return isAdmin||role==='admin';},
     canEdit(){return canWrite;},
     can(k){if(k==='data.write')return canWrite;return null;},
     async profiles(ids){const out={};try{const {data}=await sb.from('profiles').select('id,email').in('id',ids||[]);(data||[]).forEach(function(p){out[p.id]={name:p.email};});}catch(e){}return out;}

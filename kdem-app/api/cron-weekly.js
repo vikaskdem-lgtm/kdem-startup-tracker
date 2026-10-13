@@ -2,15 +2,39 @@
 // Emails the admin a KPI summary and the list of follow-ups now overdue.
 // Scheduled in vercel.json. Protected by CRON_SECRET.
 const { supaService, sendEmail } = require('../lib/util');
+const crypto = require('crypto');
+
+// Constant-time compare so the secret can't be recovered by timing the response.
+function safeEqual(a, b) {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+  if (x.length !== y.length) return false;
+  return crypto.timingSafeEqual(x, y);
+}
 
 module.exports = async (req, res) => {
-  const secret = (req.headers['authorization'] || '').replace('Bearer ', '') || (req.query && req.query.key);
-  if (process.env.CRON_SECRET && secret !== process.env.CRON_SECRET)
-    return res.status(401).json({ error: 'unauthorized' });
+  // Fail CLOSED. This used to be `if (CRON_SECRET && secret !== CRON_SECRET)`,
+  // which skipped the check entirely whenever CRON_SECRET was not configured —
+  // so anyone who knew the URL could run the job and trigger an email.
+  const expected = process.env.CRON_SECRET || '';
+  const supplied = (req.headers['authorization'] || '').replace('Bearer ', '')
+                   || (req.query && req.query.key) || '';
+  if (!expected) return res.status(503).json({ error: 'cron_secret_not_configured' });
+  if (!safeEqual(supplied, expected)) return res.status(401).json({ error: 'unauthorized' });
 
   const supa = supaService();
-  const { data } = await supa.from('startups').select('data');
-  const rows = (data || []).map(r => r.data);
+  // Supabase caps a response at 1000 rows, so page through rather than
+  // silently reporting on only the first 1000 startups.
+  const rows = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supa.from('startups').select('data')
+      .order('updated_at', { ascending: false }).order('id', { ascending: true })
+      .range(from, from + 999);
+    if (error) return res.status(500).json({ error: error.message });
+    const batch = data || [];
+    for (const r of batch) rows.push(r.data);
+    if (batch.length < 1000) break;
+    if (from > 60000) break;
+  }
   const today = new Date().toISOString().slice(0, 10);
   const c = f => rows.filter(f).length;
   const FI_PROG = ['Documents in Preparation','Partially Submitted','Submitted - Awaiting Outcome','Under Department Review','Query Raised / Docs Pending'];
