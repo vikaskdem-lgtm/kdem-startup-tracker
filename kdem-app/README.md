@@ -263,3 +263,40 @@ Open **Supabase → SQL Editor → New query**, paste **`supabase/02-call-status
 and press Run. It marks the original 460 startups as *Called* and everything else as
 *Not Called*, then prints the totals so you can confirm. Nothing in the schema
 changes.
+
+
+---
+
+## Build 4 — speed, undo, notes in the list, multi-select filters
+
+### Why it was lagging, and what changed
+
+| Cause | Fix | Effect |
+|---|---|---|
+| De-duplication scanned every startup for every imported row | Lookup maps + a token index built once per import | **58x faster** (5.9s → 0.1s on 1,065 rows vs 1,320 startups) |
+| The list drew 800 rows at once, each with dropdowns | Draws 150 with a **Load more** / **Show all** button | Far lighter page, instant filtering |
+| Nothing showed until every page of data had loaded | Each 1,000-row page paints as it arrives | Startups appear in about a second |
+| Every realtime change redrew the whole screen | Redraws only the table, and pauses entirely during an import | No stutter while saving |
+| No index on `updated_at`, so Postgres sorted the whole table each load | `supabase/03-performance.sql` | Quicker first connection |
+
+### Undo an import
+After any upload the Import page shows what the last import did and an **Undo this
+import** button (click twice to confirm). It deletes the startups that import
+created and restores the previous version of the ones it changed. The record
+survives a page reload, so you can undo later as well.
+
+### Action Notes / Remarks in the list
+Now a column in **All Startups**, after Priority, and **editable right in the row** —
+type a note, press Enter or click away, and it saves. The change is written into that
+startup's history like any other edit.
+
+### Multi-select filters
+Every filter is now a checkbox dropdown: tick several clusters, several call
+statuses, several stages at once. Within one filter the choices are OR'd; across
+filters they are AND'd. Each dropdown has its own **Clear this filter**, and the
+button shows how many you picked.
+
+### SQL to run (once)
+Supabase → SQL Editor → paste **`supabase/03-performance.sql`** → Run.
+(If you have not run it yet, `supabase/02-call-status.sql` marks your original 460
+startups as *Called*.) Neither changes the schema.

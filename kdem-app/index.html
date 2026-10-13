@@ -250,6 +250,19 @@ nav#side .navbtn.on::before{content:"";position:absolute;left:0;top:7px;bottom:7
 .inline-sel.is-mute{background:var(--surface-2);color:var(--muted);border-color:transparent}
 .cellwrap{word-break:break-all;font-size:11.5px}
 #stcount{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+
+.mfilter{position:relative;display:inline-block}
+.mf-btn.on{background:var(--primary-soft);color:var(--primary);border-color:var(--primary);font-weight:700}
+.mf-panel{display:none;position:absolute;top:calc(100% + 5px);left:0;z-index:60;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:8px;
+  min-width:210px;max-height:260px;overflow:auto}
+.mfilter.open .mf-panel{display:block}
+.mf-panel label{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 6px;border-radius:5px;cursor:pointer;white-space:nowrap}
+.mf-panel label:hover{background:var(--surface-2)}
+.mf-panel input{width:auto;margin:0}
+.inline-txt{font-size:11.5px;padding:4px 7px;border-radius:6px;border:1px solid var(--line-soft);background:var(--surface);width:100%;min-width:180px}
+.inline-txt:hover{border-color:var(--line)}
+.inline-txt:focus{border-color:var(--primary)}
 </style>
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -289,7 +302,8 @@ const S = {
   startups: SEED.map(x=>({...x})),
   view: (location.hash||'#dashboard').slice(1),
   db:null, user:null, dbReady:false, canWrite:false, me:null, meName:'',
-  filters:{q:'',cluster:'',skReg:'',appStage:'',priority:'',callStatus:''},
+  filters:{q:'',cluster:[],skReg:[],appStage:[],priority:[],callStatus:[]},
+  page:1, busy:false, lastImport:null,
   sort:{key:'name',dir:1},
   editing:null, detail:null, nameCache:{}
 };
@@ -325,6 +339,31 @@ function listFor(name){return (LISTS[name]||[]);}
 let CUSTOM_FIELDS=[];
 function cfKey(label){return 'cf_'+String(label).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);}
 function cfLabel(key){const f=CUSTOM_FIELDS.find(x=>x.key===key);return f?f.label:key.replace(/^cf_/,'').replace(/_/g,' ');}
+/* Remember enough about the last import to roll it back. */
+async function saveLastImport(){
+  if(!S.db||!S.canWrite)return false;
+  try{await S.db.doc('config/lastImport').set(S.lastImport||{});return true;}catch(e){return false;}
+}
+async function undoImport(){
+  const li=S.lastImport;
+  if(!li||(!li.created||!li.created.length)&&(!li.prev||!li.prev.length)){toast('Nothing to undo');return;}
+  if(!S.canWrite){toast('You have view-only access');return;}
+  S.busy=true;
+  try{
+    const coll=S.db?S.db.collection('startups'):null;
+    if(coll&&li.created&&li.created.length){
+      if(coll.deleteMany)await coll.deleteMany(li.created);
+      else for(const id of li.created){try{await coll.doc(id).delete();}catch(e){}}
+    }
+    (li.created||[]).forEach(removeLocal);
+    if(li.prev&&li.prev.length)await writeMany(li.prev);
+    S.lastImport={created:[],prev:[],at:li.at,by:li.by,counts:li.counts,undone:true};
+    await saveLastImport();
+    toast('Import undone — '+(li.created||[]).length+' removed, '+(li.prev||[]).length+' restored');
+  }catch(e){toast('Could not fully undo — please check the list');}
+  S.busy=false;
+  renderMain();
+}
 async function saveCustomFields(){
   if(!S.db||!S.canWrite)return false;
   try{await S.db.doc('config/customFields').set({fields:CUSTOM_FIELDS});return true;}catch(e){return false;}
@@ -650,11 +689,12 @@ function todayStr(){return new Date().toISOString().slice(0,10);}
 /* ---------- STARTUPS TABLE ---------- */
 function filtered(){
   const f=S.filters;let rows=S.startups.filter(r=>{
-    if(f.cluster&&r.cluster!==f.cluster)return false;
-    if(f.callStatus){const cs=r.callStatus||'Not Called';if(cs!==f.callStatus)return false;}
-    if(f.skReg&&r.skReg!==f.skReg)return false;
-    if(f.appStage&&r.appStage!==f.appStage)return false;
-    if(f.priority&&r.priority!==f.priority)return false;
+    const inList=(arr,v)=>!arr||!arr.length||arr.indexOf(v)>=0;
+    if(!inList(f.cluster,r.cluster))return false;
+    if(!inList(f.callStatus,r.callStatus||'Not Called'))return false;
+    if(!inList(f.skReg,r.skReg))return false;
+    if(!inList(f.appStage,r.appStage))return false;
+    if(!inList(f.priority,r.priority))return false;
     if(f.q){const q=f.q.toLowerCase();const hay=(r.name+' '+r.email+' '+r.district+' '+r.kitsNo+' '+r.dpiitNo+' '+(r.founders||[]).map(x=>x.name+' '+x.email).join(' ')).toLowerCase();if(!hay.includes(q))return false;}
     return true;
   });
@@ -667,12 +707,12 @@ function viewStartups(m){
   const tb=el('div',{class:'toolbar'});
   const q=el('input',{class:'search',placeholder:'Search name, founder, email, DPIIT no, KITS no…',value:S.filters.q,oninput:e=>{S.filters.q=e.target.value;renderTable();}});
   tb.append(q);
-  tb.append(selFilter('callStatus','All call status',CALL_STATUS));
-  tb.append(selFilter('cluster','All clusters',CLUSTERS));
-  tb.append(selFilter('skReg','All registration',['Yes','In Progress','No','No - Not Aware']));
-  tb.append(selFilter('appStage','All incentive stages',LISTS['Application Stage']||[]));
-  tb.append(selFilter('priority','All priority',['High','Medium','Low']));
-  tb.append(el('button',{class:'btn sec sm',onclick:()=>{S.filters={q:'',cluster:'',skReg:'',appStage:'',priority:'',callStatus:''};renderMain();}},'Clear'));
+  tb.append(multiFilter('callStatus','Call status',CALL_STATUS));
+  tb.append(multiFilter('cluster','Cluster',CLUSTERS));
+  tb.append(multiFilter('skReg','SK registration',['Yes','In Progress','No','No - Not Aware']));
+  tb.append(multiFilter('appStage','Incentive stage',LISTS['Application Stage']||[]));
+  tb.append(multiFilter('priority','Priority',['High','Medium','Low']));
+  tb.append(el('button',{class:'btn sec sm',onclick:()=>{S.filters={q:'',cluster:[],skReg:[],appStage:[],priority:[],callStatus:[]};S.page=1;renderMain();}},'Clear'));
   tb.append(el('div',{style:'flex:1'}));
   tb.append(el('button',{class:'btn sm',onclick:()=>go('add')},'+ Add'));
   m.append(tb);
@@ -681,7 +721,47 @@ function viewStartups(m){
   const tw=el('div',{class:'tablewrap',style:'max-height:68vh;overflow:auto'});
   tw.append(el('table',{class:'stbl',id:'sttable'}));
   wrap.append(tw);m.append(wrap);
+  m.append(el('div',{id:'stmore',style:'display:flex;gap:8px;justify-content:center;margin-top:12px'}));
+  S.page=1;
   renderTable();
+}
+/* Pick several values in one dropdown. Closes when you click away. */
+function multiFilter(key,label,opts){
+  const wrap=el('div',{class:'mfilter'});
+  const btn=el('button',{class:'btn sec sm mf-btn'});
+  const panel=el('div',{class:'mf-panel'});
+  const paint=()=>{
+    const sel=S.filters[key]||[];
+    btn.textContent=label+(sel.length?('  ('+sel.length+')'):'  ▾');
+    btn.className='btn sec sm mf-btn'+(sel.length?' on':'');
+  };
+  btn.addEventListener('click',e=>{
+    e.stopPropagation();
+    document.querySelectorAll('.mfilter.open').forEach(x=>{if(x!==wrap)x.classList.remove('open');});
+    wrap.classList.toggle('open');
+  });
+  opts.forEach(o=>{
+    const lab=el('label',{});
+    const cb=el('input',{type:'checkbox'});
+    if((S.filters[key]||[]).indexOf(o)>=0)cb.checked=true;
+    cb.addEventListener('click',e=>e.stopPropagation());
+    cb.addEventListener('change',()=>{
+      let cur=(S.filters[key]||[]).slice();
+      if(cb.checked){if(cur.indexOf(o)<0)cur.push(o);}else cur=cur.filter(x=>x!==o);
+      S.filters[key]=cur;S.page=1;paint();renderTable();
+    });
+    lab.append(cb,document.createTextNode(' '+(o||'—')));
+    panel.append(lab);
+  });
+  const clr=el('button',{class:'btn ghost sm',onclick:e=>{
+    e.stopPropagation();S.filters[key]=[];S.page=1;
+    panel.querySelectorAll('input').forEach(i=>{i.checked=false;});
+    paint();renderTable();
+  }},'Clear this filter');
+  panel.append(clr);
+  panel.addEventListener('click',e=>e.stopPropagation());
+  wrap.append(btn,panel);paint();
+  return wrap;
 }
 function selFilter(key,ph,opts){
   const s=el('select',{onchange:e=>{S.filters[key]=e.target.value;renderTable();}});
@@ -689,7 +769,28 @@ function selFilter(key,ph,opts){
   opts.forEach(o=>{const op=el('option',{value:o},o);if(S.filters[key]===o)op.selected=true;s.append(op);});
   return s;
 }
-const COLS=[['name','Startup'],['callStatus','KDEM Call'],['email','Email'],['phone','Mobile'],['cluster','Cluster'],['skReg','SK Reg'],['fiApplied','FI'],['priority','Priority']];
+const COLS=[['name','Startup'],['callStatus','KDEM Call'],['email','Email'],['phone','Mobile'],['cluster','Cluster'],['skReg','SK Reg'],['fiApplied','FI'],['priority','Priority'],['notes','Action Notes / Remarks']];
+/* A text cell that saves when you leave it — for notes straight from the list. */
+function inlineText(r,field,ph){
+  if(!S.canWrite)return el('span',{class:'cellwrap'},r[field]||'—');
+  const inp=el('input',{class:'inline-txt',value:r[field]||'',placeholder:ph||'Add a note…',
+    onclick:e=>e.stopPropagation(),
+    onkeydown:e=>{e.stopPropagation();if(e.key==='Enter')e.target.blur();},
+    onchange:async e=>{
+      e.stopPropagation();
+      const val=e.target.value;
+      const src=S.startups.find(x=>x.id===r.id);if(!src)return;
+      if((src[field]||'')===val)return;
+      const rec=JSON.parse(JSON.stringify(src));
+      rec[field]=val;
+      rec.history=rec.history||[];
+      rec.history.push({action:'Updated notes',at:new Date().toISOString(),by:S.me||'',byName:S.meName||''});
+      if(rec.history.length>20)rec.history=rec.history.slice(-20);
+      const ok=await writeStartup(rec);
+      if(ok)toast('Note saved');
+    }});
+  return inp;
+}
 /* An inline <select> that saves the moment it changes — no panel needed. */
 function inlineSelect(r,field,opts,chipFn){
   if(!S.canWrite){
@@ -730,7 +831,8 @@ function renderTable(){
   hr.append(el('th',{style:'width:60px'},''));
   t.append(el('thead',{},hr));
   const tb=el('tbody');
-  const show=rows.slice(0,800);
+  const PAGE_SIZE=150;
+  const show=rows.slice(0,S.page*PAGE_SIZE);
   show.forEach((r,i)=>{
     const founders=(r.founders||[]).map(f=>f.name).filter(Boolean).join(', ');
     const mail=r.email||((r.founders||[])[0]||{}).email||'';
@@ -746,6 +848,7 @@ function renderTable(){
       el('td',{},inlineSelect(r,'skReg',['Yes','In Progress','No','No - Not Aware'],v=>({'Yes':'good','In Progress':'warn','No':'mute','No - Not Aware':'bad'}[v]||'mute'))),
       el('td',{},inlineSelect(r,'fiApplied',['Yes','No','Planning to Apply','Not Eligible'],v=>v==='Yes'?'good':'mute')),
       el('td',{},inlineSelect(r,'priority',['High','Medium','Low'],v=>v==='High'?'bad':v==='Medium'?'warn':'mute')),
+      el('td',{style:'min-width:220px'},inlineText(r,'notes')),
       el('td',{},el('button',{class:'btn sec sm',onclick:e=>{e.stopPropagation();openDetail(r.id);}},'Open')));
     tb.append(tr);
   });
@@ -758,7 +861,16 @@ function renderTable(){
     el('span',{class:'chip good'},called+' called'),
     document.createTextNode(' '),
     el('span',{class:'chip mute'},(rows.length-called)+' not called'),
-    document.createTextNode(rows.length>800?'   (showing first 800 — refine filters)':''));
+    document.createTextNode(show.length<rows.length?('   showing '+show.length):''));
+  const more=$('#stmore');
+  if(more){
+    more.innerHTML='';
+    if(show.length<rows.length){
+      more.append(el('button',{class:'btn sec',onclick:()=>{S.page++;renderTable();}},
+        'Load '+Math.min(PAGE_SIZE,rows.length-show.length)+' more  ('+(rows.length-show.length)+' left)'));
+      more.append(el('button',{class:'btn ghost',onclick:()=>{S.page=Math.ceil(rows.length/PAGE_SIZE);renderTable();}},'Show all'));
+    }
+  }
 }
 function sortBy(k){if(S.sort.key===k)S.sort.dir*=-1;else{S.sort.key=k;S.sort.dir=1;}renderTable();}
 function regChip(c,t){return el('span',{class:'chip '+c},t);}
@@ -1074,6 +1186,9 @@ async function loadConfig(){
   try{const snap=await S.db.doc('config/dropdowns').get();
     if(snap.exists){const d=snap.data()||{};Object.keys(d).forEach(k=>{if(Array.isArray(d[k])&&d[k].length)LISTS[k]=d[k];});S._cfgVer=snap.metadata;}
   }catch(e){}
+  try{const li=await S.db.doc('config/lastImport').get();
+    if(li.exists){const d=li.data()||{};if(d&&(d.created||d.prev))S.lastImport=d;}
+  }catch(e){}
   try{const cs=await S.db.doc('config/customFields').get();
     if(cs.exists){const d=cs.data()||{};if(Array.isArray(d.fields))CUSTOM_FIELDS=d.fields;}
   }catch(e){}
@@ -1271,6 +1386,19 @@ function viewImport(m){
   const fi=el('input',{type:'file',id:'impfile',accept:'.xlsx,.xls,.csv',style:'display:none',onchange:handleImportFile});
   bar.append(fileBtn,fi,el('span',{id:'impfname',class:'count'},'No file chosen'));
   m.append(bar);
+  const li=S.lastImport;
+  if(li&&li.created&&li.created.length&&!li.undone){
+    const ub=el('div',{class:'banner warn',style:'justify-content:space-between'});
+    ub.append(el('span',{},'Last import by '+(li.by||'—')+' on '+String(li.at||'').slice(0,10)+
+      ': '+li.created.length+' added'+(li.counts&&li.counts.u?(', '+li.counts.u+' updated'):'')+'.'));
+    const btn=el('button',{class:'btn sm',onclick:()=>{
+      btn.textContent='Click again to confirm';
+      btn.onclick=()=>undoImport();
+    }},'Undo this import');
+    if(!S.canWrite)btn.disabled=true;
+    ub.append(btn);
+    m.append(ub);
+  }
   m.append(el('div',{id:'impmap'}));
   m.append(el('div',{id:'imparea'}));
   if(!S.canWrite)m.append(el('div',{class:'banner warn'},'You have view-only access — ask the owner for Editor access to import or update.'));
@@ -1351,6 +1479,50 @@ function skv(v){v=String(v||'').toLowerCase();if(v.startsWith('yes')||v.includes
 function matchList(v,list){const n=normH(v);return list.find(o=>normH(o)===n)||list.find(o=>normH(o).includes(n)&&n.length>2)||'';}
 const INCMAP=[['state gst','State GST'],['internship','Internship'],['patent','Patent'],['pf','PF/ESI'],['esi','PF/ESI'],['r&d','R&D Grant'],['research','R&D Grant'],['cloud','Cloud Storage'],['quality','Quality Cert.'],['marketing','Marketing']];
 function matchIncentive(x){const s=x.toLowerCase();for(const[k,v]of INCMAP)if(s.includes(k))return v;return '';}
+/* Build lookup maps once per import instead of scanning the whole list
+   for every row — this is what made large imports freeze. */
+function buildMatchIndex(){
+  const ix={byId:new Map(),byDpiit:new Map(),byEmail:new Map(),byName:new Map(),byToken:new Map()};
+  S.startups.forEach(s=>{
+    ix.byId.set(s.id,s);
+    const dn=(s.dpiitNo||'').replace(/\s/g,'').toLowerCase();
+    if(dn&&!ix.byDpiit.has(dn))ix.byDpiit.set(dn,s);
+    [s.email].concat((s.founders||[]).map(f=>f.email)).forEach(e=>{
+      if(!e)return;const k=String(e).toLowerCase();if(!ix.byEmail.has(k))ix.byEmail.set(k,s);
+    });
+    const nm=norm(s.name);
+    if(nm&&!ix.byName.has(nm))ix.byName.set(nm,s);
+    tokens(s.name).forEach(t=>{
+      let arr=ix.byToken.get(t);
+      if(!arr){arr=[];ix.byToken.set(t,arr);}
+      if(arr.length<300)arr.push(s);
+    });
+  });
+  return ix;
+}
+function findExistingIx(rec,ix){
+  if(rec.id&&ix.byId.has(rec.id))return ix.byId.get(rec.id);
+  const dn=(rec.dpiitNo||'').replace(/\s/g,'').toLowerCase();
+  if(dn&&ix.byDpiit.has(dn))return ix.byDpiit.get(dn);
+  const em=(rec.email||'').toLowerCase();
+  if(em&&ix.byEmail.has(em))return ix.byEmail.get(em);
+  const nm=norm(rec.name||'');
+  if(nm&&ix.byName.has(nm))return ix.byName.get(nm);
+  return null;
+}
+function findPossibleIx(rec,ix){
+  const nm=norm(rec.name||'');if(!nm)return null;
+  const seen=new Set();let best=null,bestScore=0;
+  tokens(rec.name).forEach(t=>{
+    (ix.byToken.get(t)||[]).forEach(s=>{
+      if(seen.has(s.id))return;seen.add(s.id);
+      if(norm(s.name)===nm)return;
+      const sc=simNames(s.name,rec.name);
+      if(sc>=0.6&&sc>bestScore){bestScore=sc;best=s;}
+    });
+  });
+  return best;
+}
 function findExisting(rec){
   if(rec.id){const byId=S.startups.find(s=>s.id===rec.id);if(byId)return byId;}
   const dn=(rec.dpiitNo||'').replace(/\s/g,'').toLowerCase();
@@ -1368,11 +1540,12 @@ function previewImport(){
   S._imp.sheets.forEach(s=>s.rows.forEach(raw=>{const r=buildRec(s,raw,S._imp.map);if(r.name||r.email||r.dpiitNo||r.id){recs.push(normVals(r));}}));
   if(!recs.length){area.append(el('div',{class:'banner warn'},'No usable rows — make sure a Startup Name (or email/DPIIT) column is mapped.'));return;}
   let nw=0,up=0,sk=0,po=0;const seen=new Set();
+  const ix=buildMatchIndex();
   recs.forEach(r=>{
-    const ex=findExisting(r);const key=norm(r.name)||(r.email||'').toLowerCase();
+    const ex=findExistingIx(r,ix);const key=norm(r.name)||(r.email||'').toLowerCase();
     if(ex&&!seen.has('x'+ex.id)){r._mode=upd?'update':'skip';r._target=ex.id;if(upd){up++;seen.add('x'+ex.id);}else sk++;return;}
     if(seen.has(key)){r._mode='skip';sk++;return;}
-    const poss=S.startups.find(s=>norm(s.name)!==norm(r.name)&&simNames(s.name,r.name)>=0.6);
+    const poss=findPossibleIx(r,ix);
     if(poss){r._mode='possible';r._possibleName=poss.name;po++;seen.add(key);return;}
     r._mode='new';nw++;seen.add(key);
   });
@@ -1410,13 +1583,16 @@ async function commitImport(recs){
   const fillEl=el('div',{style:'height:100%;width:0%;background:var(--primary);transition:width .2s'});
   track.append(fillEl);bar.append(lab,track);
   if(area){area.innerHTML='';area.append(bar);}
+  S.busy=true;
   const now=new Date().toISOString();
   const batch=[];let n=0,u=0;
+  const createdIds=[],prevStates=[];
   for(const r of recs){
     let rec;
     if(r._mode==='update'&&r._target){
       const ex=S.startups.find(x=>x.id===r._target);
       if(!ex)continue;
+      if(prevStates.length<600)prevStates.push(JSON.parse(JSON.stringify(ex)));
       rec=JSON.parse(JSON.stringify(ex));
       ['district','cluster','sector','subSector','stage','dpiit','dpiitNo','skReg','kitsNo','appliedSK','appSKdate','kitsConfReg','fiApplied','fiDate','appStage','kitsConfInc','aware','reason','support','action','event','source','priority','consent','planning','met','notes','fuReq','fuDate','callStatus','calledOn','calledBy','website','linkedin','cohort','yearFounded','companyProfile','product','offering','trl','teamStrength','kitsActionNeeded','kitsStatus','kitsResponse','kitsActionTaken'].forEach(k=>{if(r[k]!=null&&r[k]!=='')rec[k]=r[k];});
       if(r._hasTicks)rec.incentives=r.incentives||[];
@@ -1430,7 +1606,7 @@ async function commitImport(recs){
     }else{
       rec=blankStartup();const newId='s'+Date.now().toString(36)+Math.floor(Math.random()*1000000)+String(n);
       Object.keys(r).forEach(k=>{if(k[0]!=='_'&&k!=='id'&&r[k]!=null)rec[k]=r[k];});
-      rec.id=newId;
+      rec.id=newId;createdIds.push(newId);
       if(r._extra)rec.extra=Object.assign(rec.extra||{},r._extra);
       if(r._custom)rec.custom=Object.assign(rec.custom||{},r._custom);
       rec.founders=[{name:r.founder||'',email:r.email||'',phone:r.phone||''}];
@@ -1449,6 +1625,9 @@ async function commitImport(recs){
   });
   fillEl.style.width='100%';
   lab.textContent='Done — '+written+' saved';
+  S.lastImport={at:now,by:S.meName||ADMIN_NAME,created:createdIds,prev:prevStates,counts:{n:n,u:u}};
+  await saveLastImport();
+  S.busy=false;
   toast('Applied: '+n+' new, '+u+' updated');
   S._imp=null;S._newCustom=[];
   renderWho();go('startups');
@@ -1923,11 +2102,16 @@ async function boot(){
           S.dbReady=true;renderWho();renderMain();return;
         }
         S.startups=snap.docs.map(d=>({id:d.id,...d.data()}));
-        S.dbReady=true;renderWho();renderMain();
+        S.dbReady=true;
+        if(S.busy)return;                       // never re-render mid-import
+        renderWho();
+        // repaint only what changed: the table is far cheaper than the whole view
+        if(S.view==='startups'&&$('#sttable'))renderTable(); else renderMain();
       },err=>{/* keep seed data visible */});
     }catch(e){}
   }
 }
+document.addEventListener('click',function(){document.querySelectorAll('.mfilter.open').forEach(function(x){x.classList.remove('open');});});
 window.__startApp=boot;
 </script>
 
@@ -1999,7 +2183,7 @@ window.__startApp=boot;
           clearTimeout(deb);
           deb=setTimeout(function(){
             cb({empty:cache.length===0,docs:cache.map(function(r){return {id:r.id,data:function(){return r.data;}};})});
-          },40);
+          },200);
         };
         const load=async function(){
           // Supabase caps any single response at 1000 rows, so page through.
@@ -2010,6 +2194,8 @@ window.__startApp=boot;
             if(error){if(err)err(mapErr(error));return;}
             const batch=data||[];
             for(let i=0;i<batch.length;i++)all.push({id:batch[i].id,data:batch[i].data});
+            cache=all.slice();
+            emit();                         // show this page immediately
             if(batch.length<PAGE)break;
             from+=PAGE;
             if(from>60000)break;            // hard stop, never an infinite loop
@@ -2037,6 +2223,14 @@ window.__startApp=boot;
         // safety net: reconcile with the server every few minutes
         const poll=setInterval(load,180000);
         return function(){try{clearInterval(poll);sb.removeChannel(ch);}catch(e){}};
+      },
+      deleteMany:async function(ids){
+        const SIZE=200;
+        for(let i=0;i<ids.length;i+=SIZE){
+          const {error}=await sb.from('startups').delete().in('id',ids.slice(i,i+SIZE));
+          if(error)throw mapErr(error);
+        }
+        return ids.length;
       },
       setMany:async function(list){
         const SIZE=200;
