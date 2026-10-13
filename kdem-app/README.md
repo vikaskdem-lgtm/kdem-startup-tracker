@@ -300,3 +300,40 @@ button shows how many you picked.
 Supabase → SQL Editor → paste **`supabase/03-performance.sql`** → Run.
 (If you have not run it yet, `supabase/02-call-status.sql` marks your original 460
 startups as *Called*.) Neither changes the schema.
+
+
+---
+
+## Build 5 — merge fixed, uploaded-file registry
+
+### Why Merge felt broken
+The Duplicates page compared **every startup against every other one** — about
+870,000 pairs at 1,300 startups — rebuilding word-sets and arrays for each pair.
+Worse, every merge click re-ran that whole scan before redrawing. So the button
+worked, but the page froze for a long time afterwards.
+
+Now duplicates are found by bucketing records on the things that actually make
+them duplicates (DPIIT number, email, phone, exact name) and running the fuzzy
+name check only inside small buckets, joined with union-find.
+
+**2,600 ms → 12 ms (217x faster)**, and it is *more* thorough: it found 12 duplicate
+groups where the old scan found 6. Results are cached, so merging no longer
+rescans — the button also shows "Merging…" while it works, and there is a
+**Rescan** button when you want a fresh pass.
+
+### Files you have uploaded
+The Import page now lists **every Excel/CSV you have imported**: file name, date,
+who uploaded it, how many startups it added and updated, and how many of those are
+still live.
+
+**Delete these** removes the startups a particular file created. Before anything
+happens you get a warning that spells out the consequence — the startups disappear
+from All Startups, the dashboard counts, the cluster report and every export, and it
+cannot be undone — and you must type a **reason**. The entry stays in the list
+afterwards, greyed out, showing who removed it, when, how many, and why.
+
+Updates that an upload made to startups which already existed are not reversed by
+this; only the records that upload created are removed. (For a complete rollback of
+the most recent import, use **Undo this import** instead.)
+
+### No SQL needed for this build.

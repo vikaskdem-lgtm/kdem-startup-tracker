@@ -263,6 +263,9 @@ nav#side .navbtn.on::before{content:"";position:absolute;left:0;top:7px;bottom:7
 .inline-txt{font-size:11.5px;padding:4px 7px;border-radius:6px;border:1px solid var(--line-soft);background:var(--surface);width:100%;min-width:180px}
 .inline-txt:hover{border-color:var(--line)}
 .inline-txt:focus{border-color:var(--primary)}
+
+.banner.bad{background:var(--bad-soft);color:var(--bad)}
+.modal .box .dh{border-radius:var(--radius) var(--radius) 0 0}
 </style>
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -303,7 +306,7 @@ const S = {
   view: (location.hash||'#dashboard').slice(1),
   db:null, user:null, dbReady:false, canWrite:false, me:null, meName:'',
   filters:{q:'',cluster:[],skReg:[],appStage:[],priority:[],callStatus:[]},
-  page:1, busy:false, lastImport:null,
+  page:1, busy:false, lastImport:null, importBatches:[], _dupGroups:null,
   sort:{key:'name',dir:1},
   editing:null, detail:null, nameCache:{}
 };
@@ -340,6 +343,31 @@ let CUSTOM_FIELDS=[];
 function cfKey(label){return 'cf_'+String(label).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);}
 function cfLabel(key){const f=CUSTOM_FIELDS.find(x=>x.key===key);return f?f.label:key.replace(/^cf_/,'').replace(/_/g,' ');}
 /* Remember enough about the last import to roll it back. */
+async function saveImportBatches(){
+  if(!S.db||!S.canWrite)return false;
+  try{await S.db.doc('config/importBatches').set({list:S.importBatches||[]});return true;}catch(e){return false;}
+}
+/* Remove every startup that one uploaded file created. */
+async function deleteBatch(b,remark){
+  if(!S.canWrite){toast('You have view-only access');return;}
+  const victims=S.startups.filter(s=>s.batchId===b.id).map(s=>s.id);
+  S.busy=true;
+  try{
+    const coll=S.db?S.db.collection('startups'):null;
+    if(coll&&victims.length){
+      if(coll.deleteMany)await coll.deleteMany(victims);
+      else for(const id of victims){try{await coll.doc(id).delete();}catch(e){}}
+    }
+    victims.forEach(removeLocal);
+    b.deleted=true;b.deletedAt=new Date().toISOString();
+    b.deletedBy=S.meName||ADMIN_NAME;b.deleteRemark=remark;b.deletedCount=victims.length;
+    await saveImportBatches();
+    S._dupGroups=null;
+    toast('Removed '+victims.length+' startups from "'+b.file+'"');
+  }catch(e){toast('Could not remove them all — please check the list');}
+  S.busy=false;
+  renderMain();
+}
 async function saveLastImport(){
   if(!S.db||!S.canWrite)return false;
   try{await S.db.doc('config/lastImport').set(S.lastImport||{});return true;}catch(e){return false;}
@@ -549,34 +577,80 @@ function trendSvg(){
   wrap.append(svg);return wrap;
 }
 /* ---------- DUPLICATES ---------- */
+function simSets(A,B){if(!A.size||!B.size)return 0;let i=0;A.forEach(t=>{if(B.has(t))i++;});return i/(A.size+B.size-i);}
+/* Group duplicates without comparing every pair: bucket records by the
+   things that make them duplicates, and only run the fuzzy name check
+   inside small buckets. Near-linear instead of n-squared. */
 function findDupGroups(){
-  const rows=S.startups;const used=new Set();const groups=[];
-  for(let i=0;i<rows.length;i++){
-    if(used.has(rows[i].id))continue;
-    const a=rows[i];const grp=[a];
-    for(let j=i+1;j<rows.length;j++){
-      const b=rows[j];if(used.has(b.id))continue;
-      const sameName=norm(a.name)&&norm(a.name)===norm(b.name);
-      const dn=(a.dpiitNo||'').replace(/\s/g,'').toLowerCase();const sameDpiit=dn&&dn===(b.dpiitNo||'').replace(/\s/g,'').toLowerCase();
-      const emailsA=[a.email,...(a.founders||[]).map(f=>f.email)].filter(Boolean).map(e=>e.toLowerCase());
-      const emailsB=[b.email,...(b.founders||[]).map(f=>f.email)].filter(Boolean).map(e=>e.toLowerCase());
-      const sameEmail=emailsA.some(e=>emailsB.includes(e));
-      const phonesA=[a.phone,...(a.founders||[]).map(f=>f.phone)].filter(Boolean).map(p=>p.replace(/\D/g,'').slice(-10)).filter(x=>x.length===10);
-      const phonesB=[b.phone,...(b.founders||[]).map(f=>f.phone)].filter(Boolean).map(p=>p.replace(/\D/g,'').slice(-10)).filter(x=>x.length===10);
-      const samePhone=phonesA.some(p=>phonesB.includes(p));
-      const sim=simNames(a.name,b.name);
-      if(sameName||sameDpiit||sameEmail||samePhone||sim>=0.6){
-        b._why=sameDpiit?'Same DPIIT no.':sameName?'Same name':sameEmail?'Shared email':samePhone?'Shared phone':'Similar name ('+Math.round(sim*100)+'%)';
-        grp.push(b);used.add(b.id);
-      }
+  const rows=S.startups;
+  const meta=rows.map(r=>{
+    const emails=new Set();
+    [r.email].concat((r.founders||[]).map(f=>f.email)).forEach(e=>{if(e)emails.add(String(e).toLowerCase());});
+    const phones=new Set();
+    [r.phone].concat((r.founders||[]).map(f=>f.phone)).forEach(p=>{
+      if(!p)return;const d=String(p).replace(/\D/g,'').slice(-10);if(d.length===10)phones.add(d);});
+    return {r:r,nm:norm(r.name),dn:(r.dpiitNo||'').replace(/\s/g,'').toLowerCase(),
+            emails:emails,phones:phones,tk:tokens(r.name)};
+  });
+  const n=meta.length;
+  const parent=new Array(n);for(let i=0;i<n;i++)parent[i]=i;
+  const find=a=>{while(parent[a]!==a){parent[a]=parent[parent[a]];a=parent[a];}return a;};
+  const why={};
+  const link=(a,b,reason)=>{
+    const ra=find(a),rb=find(b);if(ra===rb)return;
+    parent[rb]=ra;
+    if(!why[meta[b].r.id])why[meta[b].r.id]=reason;
+  };
+  const bucket=(keysOf,reason)=>{
+    const map=new Map();
+    for(let i=0;i<n;i++){
+      keysOf(meta[i]).forEach(k=>{
+        if(!k)return;const arr=map.get(k);
+        if(arr)arr.push(i);else map.set(k,[i]);
+      });
     }
-    if(grp.length>1){grp.forEach(x=>used.add(x.id));groups.push(grp);}
-  }
+    map.forEach(list=>{for(let j=1;j<list.length;j++)link(list[0],list[j],reason);});
+  };
+  bucket(m=>[m.dn],'Same DPIIT no.');
+  bucket(m=>[m.nm],'Same name');
+  bucket(m=>Array.from(m.emails),'Shared email');
+  bucket(m=>Array.from(m.phones),'Shared phone');
+  // fuzzy pass, limited to records that share an uncommon word
+  const tokMap=new Map();
+  for(let i=0;i<n;i++)meta[i].tk.forEach(t=>{const a=tokMap.get(t);if(a){a.push(i);}else tokMap.set(t,[i]);});
+  tokMap.forEach(list=>{
+    if(list.length<2||list.length>150)return;        // skip words shared by everyone
+    for(let x=0;x<list.length;x++)for(let y=x+1;y<list.length;y++){
+      const i=list[x],j=list[y];
+      if(meta[i].nm===meta[j].nm)continue;
+      if(find(i)===find(j))continue;
+      const s=simSets(meta[i].tk,meta[j].tk);
+      if(s>=0.6)link(i,j,'Similar name ('+Math.round(s*100)+'%)');
+    }
+  });
+  const byRoot=new Map();
+  for(let i=0;i<n;i++){const r=find(i);const a=byRoot.get(r);if(a)a.push(meta[i].r);else byRoot.set(r,[meta[i].r]);}
+  const groups=[];
+  byRoot.forEach(list=>{
+    if(list.length<2)return;
+    list.forEach((x,idx)=>{x._why=idx===0?'':(why[x.id]||'Similar record');});
+    groups.push(list);
+  });
   return groups;
 }
+function dupGroups(force){
+  if(force||!S._dupGroups)S._dupGroups=findDupGroups();
+  return S._dupGroups;
+}
+
 function viewDuplicates(m){
   m.append(el('div',{class:'page-h'},el('div',{},el('h1',{},'Duplicate Review'),el('p',{},'Suspected duplicates found by DPIIT number, email, phone, exact name and similar name — even when the email differs'))));
-  const groups=findDupGroups();
+  const t0=Date.now();
+  const groups=dupGroups();
+  const scanMs=Date.now()-t0;
+  m.append(el('div',{class:'toolbar'},
+    el('button',{class:'btn sec sm',onclick:()=>{S._dupGroups=null;renderMain();}},'Rescan'),
+    el('span',{class:'count'},'checked '+S.startups.length+' startups'+(scanMs?(' in '+scanMs+' ms'):''))));
   if(!groups.length){m.append(el('div',{class:'banner good'},'No suspected duplicates found. Every startup looks unique.'));return;}
   m.append(el('div',{class:'banner warn'},groups.length+' possible duplicate group'+(groups.length>1?'s':'')+' found. Review each — Merge to combine into one record (founders and details kept), or Keep both if they are genuinely different.'));
   groups.forEach((grp,gi)=>{
@@ -591,16 +665,22 @@ function viewDuplicates(m){
           [r.cluster,r.email||((r.founders||[])[0]||{}).email,r.phone,r.dpiitNo].filter(Boolean).join(' · ')||'no contact')));
       const acts=el('div',{style:'display:flex;gap:6px;flex-wrap:wrap'});
       acts.append(el('button',{class:'btn sec sm',onclick:()=>openDetail(r.id)},'View'));
-      if(S.canWrite&&ri>0)acts.append(el('button',{class:'btn sm',onclick:()=>mergeInto(grp[0].id,r.id)},'Merge → primary'));
+      if(S.canWrite&&ri>0){
+        const mb=el('button',{class:'btn sm'},'Merge → primary');
+        mb.addEventListener('click',()=>mergeInto(grp[0].id,r.id,mb));
+        acts.append(mb);
+      }
       row.append(acts);cb.append(row);
     });
     if(S.canWrite)cb.append(el('div',{style:'margin-top:10px;display:flex;justify-content:flex-end'},
-      el('button',{class:'btn sec sm',onclick:()=>dismissDup(grp)},'Keep all (not duplicates)')));
+      (function(){const db2=el('button',{class:'btn sec sm'},'Keep all (not duplicates)');
+        db2.addEventListener('click',()=>dismissDup(grp,db2));return db2;})()));
     card.append(cb);m.append(card);
   });
 }
-async function mergeInto(primaryId,secId){
+async function mergeInto(primaryId,secId,btn){
   const p=S.startups.find(x=>x.id===primaryId),s=S.startups.find(x=>x.id===secId);if(!p||!s)return;
+  if(btn){btn.disabled=true;btn.textContent='Merging…';}
   const r=JSON.parse(JSON.stringify(p));
   ['district','cluster','sector','stage','dpiitNo','kitsNo','event','reason','support','action','notes','fuDate'].forEach(k=>{if(!r[k]&&s[k])r[k]=s[k];});
   if(s.dpiit==='Yes')r.dpiit='Yes';
@@ -616,16 +696,28 @@ async function mergeInto(primaryId,secId){
   if(ok){
     if(S.db){try{await S.db.collection('startups').doc(secId).delete();}catch(e){}}
     removeLocal(secId);
-    toast('Merged');renderMain();
+    // update the cached groups in place — no need to rescan everything
+    if(S._dupGroups){
+      S._dupGroups=S._dupGroups.map(g=>g.filter(x=>x.id!==secId))
+        .map(g=>g.map(x=>x.id===primaryId?r:x))
+        .filter(g=>g.length>1);
+    }
+    toast('Merged into '+(r.name||'primary'));renderMain();
   }
 }
-async function dismissDup(grp){
+async function dismissDup(grp,btn){
+  if(btn){btn.disabled=true;btn.textContent='Saving…';}
   // record a remark on each so the pairing is acknowledged and they won't be re-merged by mistake
+  const batch=[];
   for(const r0 of grp){
-    const r=JSON.parse(JSON.stringify(S.startups.find(x=>x.id===r0.id)));if(!r)continue;
+    const src=S.startups.find(x=>x.id===r0.id);if(!src)continue;
+    const r=JSON.parse(JSON.stringify(src));
     r.remarks=r.remarks||[];r.remarks.push({text:'Reviewed — confirmed NOT a duplicate of the other matched record(s)',at:new Date().toISOString(),by:S.me||'',byName:S.meName||ADMIN_NAME});
-    r.dupOk=true;await writeStartup(r);
+    r.dupOk=true;batch.push(r);
   }
+  await writeMany(batch);
+  const ids=batch.map(x=>x.id);
+  if(S._dupGroups)S._dupGroups=S._dupGroups.filter(g=>!g.some(x=>ids.indexOf(x.id)>=0));
   toast('Marked as not duplicates');renderMain();
 }
 /* ---------- SETTINGS: dropdown manager ---------- */
@@ -1186,6 +1278,9 @@ async function loadConfig(){
   try{const snap=await S.db.doc('config/dropdowns').get();
     if(snap.exists){const d=snap.data()||{};Object.keys(d).forEach(k=>{if(Array.isArray(d[k])&&d[k].length)LISTS[k]=d[k];});S._cfgVer=snap.metadata;}
   }catch(e){}
+  try{const ib=await S.db.doc('config/importBatches').get();
+    if(ib.exists){const d=ib.data()||{};if(Array.isArray(d.list))S.importBatches=d.list;}
+  }catch(e){}
   try{const li=await S.db.doc('config/lastImport').get();
     if(li.exists){const d=li.data()||{};if(d&&(d.created||d.prev))S.lastImport=d;}
   }catch(e){}
@@ -1401,7 +1496,83 @@ function viewImport(m){
   }
   m.append(el('div',{id:'impmap'}));
   m.append(el('div',{id:'imparea'}));
+  renderBatches(m);
   if(!S.canWrite)m.append(el('div',{class:'banner warn'},'You have view-only access — ask the owner for Editor access to import or update.'));
+}
+function renderBatches(m){
+  const list=S.importBatches||[];
+  const card=el('div',{class:'card',style:'margin-top:22px'});
+  card.append(el('div',{class:'ch'},el('h3',{},'Files you have uploaded'),
+    el('span',{class:'note'},list.length?(list.length+' upload'+(list.length>1?'s':'')+' on record'):'nothing uploaded yet')));
+  const cb=el('div',{class:'cb'});
+  if(!list.length){
+    cb.append(el('div',{style:'color:var(--faint);font-size:12.5px'},'Every Excel or CSV you import will be listed here with what it added, so you can remove it later if it was the wrong file.'));
+    card.append(cb);m.append(card);return;
+  }
+  const tw=el('div',{class:'tablewrap'});
+  const t=el('table',{class:'tbl'});
+  t.append(el('thead',{},el('tr',{},...['File','Uploaded','By','Added','Updated','Status',''].map((h,i)=>el('th',{class:(i===3||i===4)?'num':''},h)))));
+  const tb=el('tbody');
+  list.forEach(b=>{
+    const live=S.startups.filter(s=>s.batchId===b.id).length;
+    const tr=el('tr',{},
+      el('td',{},el('b',{},b.file||'—')),
+      el('td',{},String(b.at||'').slice(0,10)),
+      el('td',{},b.by||'—'),
+      el('td',{class:'num'},String(b.added||0)),
+      el('td',{class:'num'},String(b.updated||0)),
+      el('td',{},b.deleted
+        ? el('span',{class:'chip bad'},'Removed')
+        : el('span',{class:'chip good'},live+' live')),
+      el('td',{}));
+    const act=tr.lastChild;
+    if(b.deleted){
+      tr.style.opacity='.72';
+    }else if(S.canWrite&&live>0){
+      const del=el('button',{class:'btn sec sm'},'Delete these');
+      del.addEventListener('click',()=>openDeleteBatch(b,live));
+      act.append(del);
+    }
+    tb.append(tr);
+    if(b.deleted&&b.deleteRemark){
+      tb.append(el('tr',{},el('td',{colspan:'7',style:'color:var(--muted);font-size:11.5px;padding-top:0'},
+        'Removed '+(b.deletedCount||0)+' startups on '+String(b.deletedAt||'').slice(0,10)+
+        ' by '+(b.deletedBy||'—')+' — reason: '+b.deleteRemark)));
+    }
+  });
+  t.append(tb);tw.append(t);cb.append(tw);card.append(cb);m.append(card);
+}
+function openDeleteBatch(b,live){
+  const o=$('#overlay');o.innerHTML='';
+  const sc=el('div',{class:'scrim modal'});
+  const box=el('div',{class:'box',style:'max-width:520px'});
+  box.append(el('div',{class:'dh'},el('h2',{},'Remove this upload?'),
+    el('button',{class:'x',onclick:()=>{o.innerHTML='';}},'×')));
+  const bd=el('div',{class:'db'});
+  bd.append(el('div',{class:'banner bad'},
+    'This will permanently delete the '+live+' startups that "'+(b.file||'this file')+'" added. '+
+    'They disappear from All Startups, from the dashboard counts, from the cluster report and from every export. '+
+    'This cannot be undone.'));
+  bd.append(el('p',{style:'font-size:12.5px;color:var(--muted);margin:10px 0 2px'},
+    'Changes this file made to startups that already existed are NOT reversed — only the '+live+' it created are removed.'));
+  const f=el('div',{class:'field'});
+  f.append(el('label',{},'Reason for removing (required — kept in the record)'));
+  const ta=el('textarea',{rows:'3',placeholder:'e.g. Wrong file uploaded by mistake'});
+  f.append(ta);bd.append(f);
+  const msg=el('div',{style:'color:var(--bad);font-size:12px;min-height:16px;margin-top:6px'});
+  bd.append(msg);
+  const bar=el('div',{style:'display:flex;gap:9px;justify-content:flex-end;margin-top:14px'});
+  bar.append(el('button',{class:'btn sec',onclick:()=>{o.innerHTML='';}},'Cancel'));
+  const go=el('button',{class:'btn',style:'background:var(--bad)'},'Delete '+live+' startups');
+  go.addEventListener('click',async()=>{
+    const rm=ta.value.trim();
+    if(!rm){msg.textContent='Please type a reason first.';return;}
+    go.disabled=true;go.textContent='Removing…';
+    o.innerHTML='';
+    await deleteBatch(b,rm);
+  });
+  bar.append(go);bd.append(bar);
+  box.append(bd);sc.append(box);o.append(sc);
 }
 function handleImportFile(e){
   const file=e.target.files&&e.target.files[0];if(!file)return;
@@ -1414,6 +1585,7 @@ function handleImportFile(e){
       const parsed=parseSheets(rawSheets);
       if(!parsed){toast('No startup data found — the file needs a Startup Name (or Email / DPIIT) column');return;}
       S._imp=parsed;
+      S._impFile=file.name;
       renderMapping();
     }catch(err){toast('Could not read this file — try saving it as .xlsx or .csv');}
   };
@@ -1585,6 +1757,8 @@ async function commitImport(recs){
   if(area){area.innerHTML='';area.append(bar);}
   S.busy=true;
   const now=new Date().toISOString();
+  const batchId='b'+Date.now().toString(36);
+  const fileName=S._impFile||'Uploaded file';
   const batch=[];let n=0,u=0;
   const createdIds=[],prevStates=[];
   for(const r of recs){
@@ -1607,6 +1781,7 @@ async function commitImport(recs){
       rec=blankStartup();const newId='s'+Date.now().toString(36)+Math.floor(Math.random()*1000000)+String(n);
       Object.keys(r).forEach(k=>{if(k[0]!=='_'&&k!=='id'&&r[k]!=null)rec[k]=r[k];});
       rec.id=newId;createdIds.push(newId);
+      rec.batchId=batchId;rec.importFile=fileName;
       if(r._extra)rec.extra=Object.assign(rec.extra||{},r._extra);
       if(r._custom)rec.custom=Object.assign(rec.custom||{},r._custom);
       rec.founders=[{name:r.founder||'',email:r.email||'',phone:r.phone||''}];
@@ -1627,6 +1802,11 @@ async function commitImport(recs){
   lab.textContent='Done — '+written+' saved';
   S.lastImport={at:now,by:S.meName||ADMIN_NAME,created:createdIds,prev:prevStates,counts:{n:n,u:u}};
   await saveLastImport();
+  S.importBatches=(S.importBatches||[]);
+  S.importBatches.unshift({id:batchId,file:fileName,at:now,by:S.meName||ADMIN_NAME,added:n,updated:u});
+  if(S.importBatches.length>30)S.importBatches=S.importBatches.slice(0,30);
+  await saveImportBatches();
+  S._dupGroups=null;
   S.busy=false;
   toast('Applied: '+n+' new, '+u+' updated');
   S._imp=null;S._newCustom=[];
