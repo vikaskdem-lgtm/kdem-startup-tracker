@@ -220,3 +220,46 @@ at the repo root, clear that field.
 No SQL changes are needed for this build. Every field — including custom fields —
 is stored inside the existing `data` JSONB column, so your schema and your existing
 startups are untouched.
+
+
+---
+
+## Build 3 — calling workflow, inline editing, and the row-count fix
+
+### The 1,000-startup bug (fixed)
+Supabase returns a maximum of **1,000 rows per request**, so the app was only ever
+loading the first 1,000 startups no matter how many existed. Your import of 860 new
+startups *did* save correctly — the screen just couldn't see past 1,000. The app now
+pages through the table 1,000 rows at a time, so the real total always shows.
+
+### KDEM Calling
+- Every startup has a **Call Status**: Not Called · Called · No Response ·
+  Call Back Later · Wrong Number · Not Reachable.
+- It sits right next to the startup name in **All Startups**, with the date and the
+  person who called shown underneath.
+- Filter the list by call status to work through "Not Called" like a call sheet.
+- The dashboard shows **Startups Called by KDEM** and **Still to Call**, plus a
+  calling-progress breakdown.
+- Changing the status stamps the date and caller automatically and writes a line into
+  that startup's remarks log.
+
+### Edit in the row, or in the panel
+Call Status, SK Registration, Fiscal Incentive and Priority are now **dropdowns
+inside the table** — change one and it saves instantly, no panel needed. Click
+anywhere else on the row (or the **Open** button) for the full profile when you need
+everything. Both work; use whichever is faster.
+
+### All Startups table
+Now shows **S.No · Startup · KDEM Call · Email · Mobile · Cluster · SK Reg · FI ·
+Priority**, with a live "x called / y not called" count above it.
+
+### Excel
+Three new columns — **KDEM Call Status, Last Called On, Called By** — in their own
+green "KDEM CALLING" band, with a dropdown on the status. They round-trip back on
+re-upload like every other field.
+
+### SQL to run (once)
+Open **Supabase → SQL Editor → New query**, paste **`supabase/02-call-status.sql`**,
+and press Run. It marks the original 460 startups as *Called* and everything else as
+*Not Called*, then prints the totals so you can confirm. Nothing in the schema
+changes.

@@ -240,6 +240,16 @@ nav#side .navbtn.on::before{content:"";position:absolute;left:0;top:7px;bottom:7
 .livedot{width:8px;height:8px;border-radius:50%;background:var(--warn);display:inline-block;flex:none}
 .livedot.on{background:#4ade80;box-shadow:0 0 0 3px rgba(74,222,128,.22)}
 .livetxt{font-size:11px;opacity:.85}
+
+.inline-sel{font-size:11.5px;padding:3px 6px;border-radius:999px;border:1px solid var(--line);background:var(--surface);max-width:140px;font-weight:600;cursor:pointer}
+.inline-sel:hover{border-color:var(--primary)}
+.inline-sel.is-good{background:var(--good-soft);color:var(--good);border-color:transparent}
+.inline-sel.is-warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.inline-sel.is-bad{background:var(--bad-soft);color:var(--bad);border-color:transparent}
+.inline-sel.is-info{background:var(--info-soft);color:var(--info);border-color:transparent}
+.inline-sel.is-mute{background:var(--surface-2);color:var(--muted);border-color:transparent}
+.cellwrap{word-break:break-all;font-size:11.5px}
+#stcount{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 </style>
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -279,13 +289,22 @@ const S = {
   startups: SEED.map(x=>({...x})),
   view: (location.hash||'#dashboard').slice(1),
   db:null, user:null, dbReady:false, canWrite:false, me:null, meName:'',
-  filters:{q:'',cluster:'',skReg:'',appStage:'',priority:''},
+  filters:{q:'',cluster:'',skReg:'',appStage:'',priority:'',callStatus:''},
   sort:{key:'name',dir:1},
   editing:null, detail:null, nameCache:{}
 };
 const CLUSTERS=['Bengaluru Urban','H-D-B Cluster','Mangaluru Cluster','Mysuru Cluster','Shivamogga Cluster','Kalaburagi Cluster','Tumakuru Cluster'];
 const INCENTIVES=['State GST','Internship','Patent','PF/ESI','R&D Grant','Cloud Storage','Quality Cert.','Marketing'];
 const KITS_STATUS=['','Pending with KITS','In Progress at KITS','Responded','Resolved','On Hold'];
+const CALL_STATUS=['Not Called','Called','No Response','Call Back Later','Wrong Number','Not Reachable'];
+const CALL_DONE=['Called','Call Back Later'];           // counts as "we reached out"
+function callChipClass(v){
+  if(v==='Called')return 'good';
+  if(v==='Call Back Later')return 'warn';
+  if(v==='No Response'||v==='Not Reachable')return 'info';
+  if(v==='Wrong Number')return 'bad';
+  return 'mute';
+}
 const FI_INPROGRESS=['Documents in Preparation','Partially Submitted','Submitted - Awaiting Outcome','Under Department Review','Query Raised / Docs Pending'];
 const $=(s,r=document)=>r.querySelector(s);
 const el=(t,a={},...k)=>{const e=document.createElement(t);for(const[n,v]of Object.entries(a)){if(n==='class')e.className=v;else if(n==='html')e.innerHTML=v;else if(n.startsWith('on'))e.addEventListener(n.slice(2),v);else if(v!=null)e.setAttribute(n,v);}for(const c of k.flat()){if(c==null||c===false)continue;e.append(c.nodeType?c:document.createTextNode(c));}return e;};
@@ -327,6 +346,8 @@ function kpis(rows){
     kitsProg:c(r=>r.kitsConfReg==='In progess'||r.kitsConfInc==='In progess'),
     kitsSel:c(r=>r.kitsConfReg==='Selected'||r.kitsConfInc==='Selected'),
     kitsRej:c(r=>r.kitsConfReg==='Rejected'||r.kitsConfInc==='Rejected'),
+    called:c(r=>CALL_DONE.includes(r.callStatus||'')),
+    notCalled:c(r=>!CALL_DONE.includes(r.callStatus||'')),
   };
 }
 
@@ -386,6 +407,8 @@ function viewDashboard(m){
     ['Fiscal Incentive In Progress',k.fiProg,pc(k.fiProg,t),'w'],
     ['Benefits Received / Disbursed',k.benefits,pc(k.benefits,t),'g'],
     ['Founders Met in Person',k.met,pc(k.met,t),'i'],
+    ['Startups Called by KDEM',k.called,pc(k.called,t),'g'],
+    ['Still to Call',k.notCalled,pc(k.notCalled,t),'b'],
     ['KITS Verification · In Progress',k.kitsProg,'','w'],
     ['KITS Reply · Selected',k.kitsSel,'','g'],
     ['KITS Reply · Rejected',k.kitsRej,'','b'],
@@ -450,6 +473,8 @@ function breakdownCard(title,note,pairs,limit){
 }
 function dashExtra(m){
   const g=el('div',{class:'grid2',style:'margin-top:14px'});
+  g.append(breakdownCard('KDEM Calling Progress','Tap All Startups to work the list',
+    CALL_STATUS.map(cs=>[cs,S.startups.filter(r=>(r.callStatus||'Not Called')===cs).length]).filter(p=>p[1])));
   g.append(breakdownCard('Source of Contact','Where startups came from',countBy(S.startups,'source')));
   g.append(breakdownCard('District / City','Top locations',countBy(S.startups,'district').filter(p=>p[0]!=='—'),12));
   m.append(g);
@@ -626,6 +651,7 @@ function todayStr(){return new Date().toISOString().slice(0,10);}
 function filtered(){
   const f=S.filters;let rows=S.startups.filter(r=>{
     if(f.cluster&&r.cluster!==f.cluster)return false;
+    if(f.callStatus){const cs=r.callStatus||'Not Called';if(cs!==f.callStatus)return false;}
     if(f.skReg&&r.skReg!==f.skReg)return false;
     if(f.appStage&&r.appStage!==f.appStage)return false;
     if(f.priority&&r.priority!==f.priority)return false;
@@ -641,11 +667,12 @@ function viewStartups(m){
   const tb=el('div',{class:'toolbar'});
   const q=el('input',{class:'search',placeholder:'Search name, founder, email, DPIIT no, KITS no…',value:S.filters.q,oninput:e=>{S.filters.q=e.target.value;renderTable();}});
   tb.append(q);
+  tb.append(selFilter('callStatus','All call status',CALL_STATUS));
   tb.append(selFilter('cluster','All clusters',CLUSTERS));
   tb.append(selFilter('skReg','All registration',['Yes','In Progress','No','No - Not Aware']));
   tb.append(selFilter('appStage','All incentive stages',LISTS['Application Stage']||[]));
   tb.append(selFilter('priority','All priority',['High','Medium','Low']));
-  tb.append(el('button',{class:'btn sec sm',onclick:()=>{S.filters={q:'',cluster:'',skReg:'',appStage:'',priority:''};renderMain();}},'Clear'));
+  tb.append(el('button',{class:'btn sec sm',onclick:()=>{S.filters={q:'',cluster:'',skReg:'',appStage:'',priority:'',callStatus:''};renderMain();}},'Clear'));
   tb.append(el('div',{style:'flex:1'}));
   tb.append(el('button',{class:'btn sm',onclick:()=>go('add')},'+ Add'));
   m.append(tb);
@@ -662,28 +689,76 @@ function selFilter(key,ph,opts){
   opts.forEach(o=>{const op=el('option',{value:o},o);if(S.filters[key]===o)op.selected=true;s.append(op);});
   return s;
 }
-const COLS=[['name','Startup'],['cluster','Cluster'],['stage','Stage'],['dpiit','DPIIT'],['skReg','SK Reg'],['fiApplied','FI'],['appStage','Incentive Stage'],['priority','Priority']];
+const COLS=[['name','Startup'],['callStatus','KDEM Call'],['email','Email'],['phone','Mobile'],['cluster','Cluster'],['skReg','SK Reg'],['fiApplied','FI'],['priority','Priority']];
+/* An inline <select> that saves the moment it changes — no panel needed. */
+function inlineSelect(r,field,opts,chipFn){
+  if(!S.canWrite){
+    const v=r[field]||(field==='callStatus'?'Not Called':'—');
+    return chipFn?el('span',{class:'chip '+chipFn(v)},v):el('span',{},v);
+  }
+  const sel=el('select',{class:'inline-sel '+(chipFn?('is-'+chipFn(r[field]||'Not Called')):''),
+    onclick:e=>e.stopPropagation(),
+    onchange:async e=>{
+      e.stopPropagation();
+      const val=e.target.value;
+      const rec=JSON.parse(JSON.stringify(S.startups.find(x=>x.id===r.id)));
+      if(!rec)return;
+      rec[field]=val;
+      if(field==='callStatus'){
+        rec.calledOn=todayStr();
+        rec.calledBy=S.meName||ADMIN_NAME;
+        rec.remarks=rec.remarks||[];
+        rec.remarks.push({text:'Call status set to "'+val+'"',at:new Date().toISOString(),by:S.me||'',byName:S.meName||ADMIN_NAME});
+      }
+      rec.history=rec.history||[];
+      rec.history.push({action:'Updated '+field,at:new Date().toISOString(),by:S.me||'',byName:S.meName||''});
+      if(rec.history.length>20)rec.history=rec.history.slice(-20);
+      const ok=await writeStartup(rec);
+      if(ok){toast('Saved');renderTable();renderDashTiles();}
+    }});
+  const cur=r[field]||(field==='callStatus'?'Not Called':'');
+  opts.forEach(o=>{const op=el('option',{value:o},o||'—');if(cur===o)op.selected=true;sel.append(op);});
+  return sel;
+}
+function renderDashTiles(){ if(S.view==='dashboard')renderMain(); }
 function renderTable(){
   const rows=filtered();const t=$('#sttable');if(!t)return;t.innerHTML='';
   const hr=el('tr');
-  hr.append(el('th',{onclick:()=>sortBy('name')},'Startup'));
+  hr.append(el('th',{style:'width:54px'},'S.No'));
+  hr.append(el('th',{onclick:()=>sortBy('name')},'Startup'+(S.sort.key==='name'?(S.sort.dir>0?' ▲':' ▼'):'')));
   COLS.slice(1).forEach(([k,l])=>hr.append(el('th',{onclick:()=>sortBy(k)},l+(S.sort.key===k?(S.sort.dir>0?' ▲':' ▼'):''))));
+  hr.append(el('th',{style:'width:60px'},''));
   t.append(el('thead',{},hr));
   const tb=el('tbody');
-  rows.slice(0,600).forEach(r=>{
+  const show=rows.slice(0,800);
+  show.forEach((r,i)=>{
     const founders=(r.founders||[]).map(f=>f.name).filter(Boolean).join(', ');
-    tb.append(el('tr',{onclick:()=>openDetail(r.id)},
+    const mail=r.email||((r.founders||[])[0]||{}).email||'';
+    const tel=r.phone||((r.founders||[])[0]||{}).phone||'';
+    const tr=el('tr',{onclick:()=>openDetail(r.id)},
+      el('td',{class:'mono',style:'color:var(--faint)'},String(i+1)),
       el('td',{},el('div',{class:'nm'},r.name||'(unnamed)'),founders?el('div',{class:'sub'},founders):null),
-      el('td',{},r.cluster||''),
-      el('td',{},r.stage||'—'),
-      el('td',{},regChip(r.dpiit==='Yes'?'good':'mute',r.dpiit||'—')),
-      el('td',{},skChip(r.skReg)),
-      el('td',{},regChip(r.fiApplied==='Yes'?'good':'mute',r.fiApplied||'—')),
-      el('td',{},r.appStage==='Benefit Received / Disbursed'?el('span',{class:'chip good'},'Disbursed'):r.appStage==='Rejected'?el('span',{class:'chip bad'},'Rejected'):FI_INPROGRESS.includes(r.appStage)?el('span',{class:'chip warn'},r.appStage):el('span',{class:'chip mute'},r.appStage||'—')),
-      el('td',{},r.priority?el('span',{class:'chip '+(r.priority==='High'?'bad':r.priority==='Medium'?'warn':'mute')},r.priority):'—')));
+      el('td',{},inlineSelect(r,'callStatus',CALL_STATUS,callChipClass),
+               r.calledOn?el('div',{class:'sub'},r.calledOn+(r.calledBy?(' · '+r.calledBy.split(' ')[0]):'')):null),
+      el('td',{},mail?el('span',{class:'cellwrap'},mail):el('span',{style:'color:var(--faint)'},'—')),
+      el('td',{class:'mono'},tel||'—'),
+      el('td',{},r.cluster||'—'),
+      el('td',{},inlineSelect(r,'skReg',['Yes','In Progress','No','No - Not Aware'],v=>({'Yes':'good','In Progress':'warn','No':'mute','No - Not Aware':'bad'}[v]||'mute'))),
+      el('td',{},inlineSelect(r,'fiApplied',['Yes','No','Planning to Apply','Not Eligible'],v=>v==='Yes'?'good':'mute')),
+      el('td',{},inlineSelect(r,'priority',['High','Medium','Low'],v=>v==='High'?'bad':v==='Medium'?'warn':'mute')),
+      el('td',{},el('button',{class:'btn sec sm',onclick:e=>{e.stopPropagation();openDetail(r.id);}},'Open')));
+    tb.append(tr);
   });
   t.append(tb);
-  $('#stcount').textContent=`${rows.length} startup${rows.length!==1?'s':''}${rows.length>600?' (showing first 600 — refine filters)':''}`;
+  const called=rows.filter(r=>CALL_DONE.includes(r.callStatus||'')).length;
+  $('#stcount').innerHTML='';
+  $('#stcount').append(
+    el('b',{},String(rows.length)),
+    document.createTextNode(' startup'+(rows.length!==1?'s':'')+'  ·  '),
+    el('span',{class:'chip good'},called+' called'),
+    document.createTextNode(' '),
+    el('span',{class:'chip mute'},(rows.length-called)+' not called'),
+    document.createTextNode(rows.length>800?'   (showing first 800 — refine filters)':''));
 }
 function sortBy(k){if(S.sort.key===k)S.sort.dir*=-1;else{S.sort.key=k;S.sort.dir=1;}renderTable();}
 function regChip(c,t){return el('span',{class:'chip '+c},t);}
@@ -709,6 +784,8 @@ function renderOverlay(){
     el('span',{class:'chip '+(r.dpiit==='Yes'?'good':'mute')},'DPIIT: '+(r.dpiit||'—')),
     r.fiApplied==='Yes'?el('span',{class:'chip good'},'Incentive applied'):el('span',{class:'chip mute'},'No incentive yet'),
     r.priority?el('span',{class:'chip '+(r.priority==='High'?'bad':'warn')},r.priority+' priority'):null));
+  // call status strip — the first thing a caller needs
+  b.append(dlGroup('KDEM Calling',[['Call status',r.callStatus||'Not Called'],['Last called on',r.calledOn],['Called by',r.calledBy]]));
   // quick call / status update panel
   if(S.canWrite) b.append(quickPanel(r));
   b.append(dlGroup('Identification & Source',[['Sl. date added',r.date],['Source of contact',r.source],['Event / meeting',r.event],['Founder met in person',r.met],['Email ID',r.email],['Contact number',r.phone]]));
@@ -771,6 +848,7 @@ function quickPanel(src){
   const cb=el('div',{class:'cb'});
   const g=el('div',{class:'fgrid'});
   const qsel=(key,label,opts)=>{const f=el('div',{class:'field'});f.append(el('label',{},label));const s=el('select',{onchange:e=>r[key]=e.target.value});opts.forEach(o=>{const op=el('option',{value:o},o||'—');if((r[key]||'')===o)op.selected=true;s.append(op);});f.append(s);return f;};
+  g.append(qsel('callStatus','KDEM Call Status',CALL_STATUS));
   g.append(qsel('skReg','Startup Karnataka Registration',['Yes','In Progress','No','No - Not Aware']));
   g.append(qsel('kitsConfReg','KITS reply — Registration',['','In progess','Selected','Rejected']));
   g.append(qsel('fiApplied','Fiscal Incentive Applied',['Yes','No','Planning to Apply','Not Eligible']));
@@ -785,6 +863,7 @@ function quickPanel(src){
   cb.append(g);
   const bar=el('div',{style:'display:flex;justify-content:flex-end;gap:8px;margin-top:12px'});
   bar.append(el('button',{class:'btn',onclick:async()=>{
+    if(r.callStatus&&r.callStatus!=='Not Called'){r.calledOn=todayStr();r.calledBy=S.meName||ADMIN_NAME;}
     if(na.value.trim()){r.remarks=r.remarks||[];r.remarks.push({text:'Call: '+na.value.trim(),at:new Date().toISOString(),by:S.me||'',byName:S.meName||ADMIN_NAME});}
     r.history=r.history||[];r.history.push({action:'Call update',at:new Date().toISOString(),by:S.me||'',byName:S.meName||''});
     if(r.history.length>20)r.history=r.history.slice(-20);
@@ -813,7 +892,7 @@ function fallbackCopy(t,msg){const a=el('textarea',{});a.value=t;document.body.a
 /* ---------- ADD / EDIT FORM ---------- */
 function viewAdd(m){S.editing='new';m.append(el('div',{class:'page-h'},el('div',{},el('h1',{},'Add a Startup'),el('p',{},'Add one startup with all its details and founders'))));
   m.append(formInline());}
-function blankStartup(){return{id:'',name:'',date:todayStr(),source:'Event / Meeting',founders:[{name:'',email:'',phone:''}],email:'',phone:'',met:'No',event:'',sector:'',stage:'',district:'',cluster:'Bengaluru Urban',dpiit:'No',dpiitNo:'',skReg:'No',kitsNo:'',appliedSK:'No',appSKdate:'',kitsConfReg:'',fiApplied:'No',fiDate:'',incentives:[],kitsConfInc:'',planning:'',appStage:'Not Applied',aware:'No',reason:'',support:'',action:'',notes:'',priority:'Medium',fuReq:'No',fuDate:'',consent:'Yes',kitsActionNeeded:'',kitsStatus:'',kitsResponse:'',kitsActionTaken:'',website:'',linkedin:'',cohort:'',subSector:'',yearFounded:'',companyProfile:'',product:'',offering:'',trl:'',teamStrength:'',extra:{},custom:{},history:[],remarks:[]};}
+function blankStartup(){return{id:'',name:'',date:todayStr(),source:'Event / Meeting',founders:[{name:'',email:'',phone:''}],email:'',phone:'',met:'No',event:'',sector:'',stage:'',district:'',cluster:'Bengaluru Urban',dpiit:'No',dpiitNo:'',skReg:'No',kitsNo:'',appliedSK:'No',appSKdate:'',kitsConfReg:'',fiApplied:'No',fiDate:'',incentives:[],kitsConfInc:'',planning:'',appStage:'Not Applied',aware:'No',reason:'',support:'',action:'',notes:'',priority:'Medium',fuReq:'No',fuDate:'',consent:'Yes',kitsActionNeeded:'',kitsStatus:'',kitsResponse:'',kitsActionTaken:'',callStatus:'Not Called',calledOn:'',calledBy:'',website:'',linkedin:'',cohort:'',subSector:'',yearFounded:'',companyProfile:'',product:'',offering:'',trl:'',teamStrength:'',extra:{},custom:{},history:[],remarks:[]};}
 function formInline(){const wrap=el('div',{class:'card'});wrap.append(formBody(S.editing==='new'?blankStartup():{...S.startups.find(x=>x.id===S.editing)},true));return wrap;}
 function formDrawer(){
   const r=S.editing==='new'?blankStartup():{...S.startups.find(x=>x.id===S.editing)};
@@ -904,6 +983,11 @@ function formBody(r,inline){
   g.append(sel('kitsStatus','KITS Status',KITS_STATUS));
   g.append(ta('kitsResponse','KITS Response / Reply'));
   g.append(ta('kitsActionTaken','KITS Action Taken'));
+
+  g.append(el('div',{class:'sectitle'},'KDEM Calling'));
+  g.append(sel('callStatus','Call Status',CALL_STATUS));
+  g.append(txt('calledOn','Last Called On (YYYY-MM-DD)'));
+  g.append(txt('calledBy','Called By'));
 
   g.append(el('div',{class:'sectitle'},'Enablement & Follow-up'));
   g.append(sel('support','Support Required',['',...(LISTS['Support Required']||[])]));
@@ -1014,6 +1098,9 @@ const IMPORT_FIELDS = [
  {k:'district',label:'District / City',syn:['location / district','location district','district / city','district','city','location','place','taluk']},
  {k:'cluster',label:'KDEM Cluster',syn:['kdem cluster','cluster']},
  {k:'cohort',label:'Cohort',syn:['cohort','batch']},
+ {k:'callStatus',label:'KDEM Call Status',syn:['kdem call status','call status','called']},
+ {k:'calledOn',label:'Last Called On',syn:['last called on','called on','call date']},
+ {k:'calledBy',label:'Called By',syn:['called by','caller']},
  {k:'sector',label:'Sector',syn:['industry / sector','industry sector','industry','sector','domain']},
  {k:'subSector',label:'Sub-sector',syn:['sub-sector','sub sector','subsector']},
  {k:'stage',label:'Startup Stage',syn:['current stage','startup stage','stage of startup','stage']},
@@ -1331,7 +1418,7 @@ async function commitImport(recs){
       const ex=S.startups.find(x=>x.id===r._target);
       if(!ex)continue;
       rec=JSON.parse(JSON.stringify(ex));
-      ['district','cluster','sector','subSector','stage','dpiit','dpiitNo','skReg','kitsNo','appliedSK','appSKdate','kitsConfReg','fiApplied','fiDate','appStage','kitsConfInc','aware','reason','support','action','event','source','priority','consent','planning','met','notes','fuReq','fuDate','website','linkedin','cohort','yearFounded','companyProfile','product','offering','trl','teamStrength','kitsActionNeeded','kitsStatus','kitsResponse','kitsActionTaken'].forEach(k=>{if(r[k]!=null&&r[k]!=='')rec[k]=r[k];});
+      ['district','cluster','sector','subSector','stage','dpiit','dpiitNo','skReg','kitsNo','appliedSK','appSKdate','kitsConfReg','fiApplied','fiDate','appStage','kitsConfInc','aware','reason','support','action','event','source','priority','consent','planning','met','notes','fuReq','fuDate','callStatus','calledOn','calledBy','website','linkedin','cohort','yearFounded','companyProfile','product','offering','trl','teamStrength','kitsActionNeeded','kitsStatus','kitsResponse','kitsActionTaken'].forEach(k=>{if(r[k]!=null&&r[k]!=='')rec[k]=r[k];});
       if(r._hasTicks)rec.incentives=r.incentives||[];
       else if(r.incentives&&r.incentives.length)rec.incentives=Array.from(new Set([...(rec.incentives||[]),...r.incentives]));
       if(r._extra)rec.extra=Object.assign(rec.extra||{},r._extra);
@@ -1497,6 +1584,9 @@ const EXP_COLS = [
   { h:'Cloud Storage',  k:'_tick5', w:12, dv:'Tick' },
   { h:'Quality Cert.',  k:'_tick6', w:12, dv:'Tick' },
   { h:'Marketing',      k:'_tick7', w:12, dv:'Tick' },
+  { h:'KDEM Call Status',                  k:'callStatus',      w:16, dv:'Call Status' },
+  { h:'Last Called On',                    k:'calledOn',        w:14 },
+  { h:'Called By',                         k:'calledBy',        w:18 },
   { h:'Cohort',                            k:'cohort',          w:14 },
   { h:'Sub-sector',                        k:'subSector',       w:20 },
   { h:'Year Founded',                      k:'yearFounded',     w:12 },
@@ -1526,13 +1616,14 @@ const EXP_BANDS = [
   { from:1,  to:9,  t:'IDENTIFICATION & SOURCE',                              c:'FF2E5FA3' },
   { from:10, to:13, t:'PROFILE & CLUSTER',                                    c:'FFBF8F00' },
   { from:14, to:20, t:'REGISTRATION STATUS (incl. KITS CONFIRMATION)',        c:'FF2F7D32' },
-  { from:21, to:28, t:'FISCAL EXP_INCENTIVES (incl. KITS CONFIRMATION)',          c:'FF7B3FA0' },
+  { from:21, to:28, t:'FISCAL INCENTIVES (incl. KITS CONFIRMATION)',          c:'FF7B3FA0' },
   { from:29, to:36, t:'KDEM ENABLEMENT & FOLLOW-UP',                          c:'FFB3541E' },
   { from:37, to:39, t:'AUTO STATUS',                                          c:'FF555555' },
-  { from:40, to:47, t:'EXP_INCENTIVES AVAILED — TICK ✓ ALL THAT APPLY',           c:'FF2F7D32' },
-  { from:48, to:57, t:'COMPANY DETAILS',                                      c:'FF4E6E81' },
-  { from:58, to:61, t:'KITS COORDINATION — FOR KITS TEAM TO FILL',            c:'FF007C91' },
-  { from:62, to:63, t:'SYSTEM — DO NOT EDIT',                                 c:'FF555555', last:true }
+  { from:40, to:47, t:'INCENTIVES AVAILED — TICK ✓ ALL THAT APPLY',           c:'FF2F7D32' },
+  { from:48, to:50, t:'KDEM CALLING',                                         c:'FF1F7A46' },
+  { from:51, to:60, t:'COMPANY DETAILS',                                      c:'FF4E6E81' },
+  { from:61, to:64, t:'KITS COORDINATION — FOR KITS TEAM TO FILL',            c:'FF007C91' },
+  { from:65, to:66, t:'SYSTEM — DO NOT EDIT',                                 c:'FF555555', last:true }
 ];
 
 const EXP_DEFAULT_LISTS = {
@@ -1550,7 +1641,8 @@ const EXP_DEFAULT_LISTS = {
   'KDEM Action Taken':['Called','Emailed','Called + Emailed','WhatsApp Follow-up','Met at Event','Guided on Documents','Registration Assistance Given','Escalated to KITS','Escalated to EIT-BT Dept','Issue Resolved','No Action Yet'],
   'Support Required':['Registration Assistance','Document / Annexure Guidance','Affidavit / Notary Guidance','Application Status Update','Funding / Investor Access','Mentorship & Networking','Awareness of Government Schemes','Market Access','Regulatory / Compliance','Talent / Hiring','Infrastructure / Workspace','No Support Needed','Other'],
   'Priority':['High','Medium','Low'],
-  'Tick':['✓']
+  'Tick':['✓'],
+  'Call Status':['Not Called','Called','No Response','Call Back Later','Wrong Number','Not Reachable']
 };
 
 function expColLetter(n){let s='';while(n>0){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=(n-m-1)/26;}return s;}
@@ -1910,9 +2002,19 @@ window.__startApp=boot;
           },40);
         };
         const load=async function(){
-          const {data,error}=await sb.from('startups').select('id,data').order('updated_at',{ascending:false}).limit(25000);
-          if(error){if(err)err(mapErr(error));return;}
-          cache=(data||[]).map(function(r){return {id:r.id,data:r.data};});
+          // Supabase caps any single response at 1000 rows, so page through.
+          const PAGE=1000; let from=0; const all=[];
+          for(;;){
+            const {data,error}=await sb.from('startups').select('id,data')
+              .order('updated_at',{ascending:false}).range(from,from+PAGE-1);
+            if(error){if(err)err(mapErr(error));return;}
+            const batch=data||[];
+            for(let i=0;i<batch.length;i++)all.push({id:batch[i].id,data:batch[i].data});
+            if(batch.length<PAGE)break;
+            from+=PAGE;
+            if(from>60000)break;            // hard stop, never an infinite loop
+          }
+          cache=all;
           emit();
         };
         load();
