@@ -11,12 +11,28 @@ function tokens(n){return new Set((n||'').toLowerCase().replace(/[^a-z0-9 ]/g,' 
 function simNames(a,b){const A=tokens(a),B=tokens(b);if(!A.size||!B.size)return 0;let i=0;A.forEach(t=>{if(B.has(t))i++;});return i/(A.size+B.size-i);}
 
 const FIELDS = [
- {k:'name',syn:['startup name','company name','company','name of startup','organisation','organization','startup']},
- {k:'founder',syn:['founder','co-founder','point of contact','contact name','founder name','poc','promoter','director']},
- {k:'email',syn:['email address','official email','registered email','email id','email','mail']},
+ {k:'id',syn:['startup id','record id','tracker id']},
+ {k:'name',syn:['startup name','name of startup','company name','organisation name','organization name','startup']},
+ {k:'founder',syn:['founder','co-founder','point of contact','primary contact','contact name','contact person','founder name','poc','promoter','director']},
+ {k:'email',syn:['email address','official email','registered email','email id','contact email','email','mail']},
  {k:'phone',syn:['contact number','phone number','mobile number','whatsapp','mobile','phone','number']},
- {k:'district',syn:['district / city','district','city','location','place','taluk']},
- {k:'sector',syn:['sector','industry','domain']},
+ {k:'website',syn:['website','url','web site','site']},
+ {k:'linkedin',syn:['linkedin','linked in','linkedin url']},
+ {k:'source',syn:['source of contact','source']},
+ {k:'cohort',syn:['cohort','batch']},
+ {k:'subSector',syn:['sub-sector','sub sector','subsector']},
+ {k:'yearFounded',syn:['year founded','founded','year of incorporation','incorporation year']},
+ {k:'companyProfile',syn:['company profile','about the startup','about','description','overview']},
+ {k:'product',syn:['product / service','product service','product','service']},
+ {k:'offering',syn:['offering / customer focus','offering customer focus','offering','customer focus']},
+ {k:'trl',syn:['technology readiness level trl','technology readiness level','trl']},
+ {k:'teamStrength',syn:['team strength','team size','employees','headcount']},
+ {k:'kitsActionNeeded',syn:['action needed from kits','kits action needed']},
+ {k:'kitsStatus',syn:['kits status']},
+ {k:'kitsResponse',syn:['kits response / reply','kits response reply','kits response','kits reply']},
+ {k:'kitsActionTaken',syn:['kits action taken']},
+ {k:'district',syn:['location / district','location district','district / city','district','city','location','place','taluk']},
+ {k:'sector',syn:['industry / sector','industry sector','industry','sector','domain']},
  {k:'stage',syn:['current stage','startup stage','stage of startup','stage']},
  {k:'dpiit',syn:['dpiit recognised','dpiit recognized','is your startup dpiit','dpiit']},
  {k:'dpiitNo',syn:['dpiit recognition number','dpiit number','dpiit no']},
@@ -75,7 +91,7 @@ function blankStartup() {
     dpiit:'No', dpiitNo:'', skReg:'No', kitsNo:'', appliedSK:'No', appSKdate:'', kitsConfReg:'',
     fiApplied:'No', fiDate:'', incentives:[], kitsConfInc:'', planning:'', appStage:'Not Applied', aware:'No',
     reason:'', support:'', action:'', notes:'', priority:'Medium', fuReq:'No', fuDate:'', consent:'Yes',
-    kitsActionNeeded:'', kitsStatus:'', kitsResponse:'', kitsActionTaken:'', history:[], remarks:[] };
+    kitsActionNeeded:'', kitsStatus:'', kitsResponse:'', kitsActionTaken:'', website:'', linkedin:'', cohort:'', subSector:'', yearFounded:'', companyProfile:'', product:'', offering:'', trl:'', teamStrength:'', extra:{}, history:[], remarks:[] };
 }
 
 module.exports = { toCluster, norm, simNames, mapAnswers, blankStartup, CLUSTERS };

@@ -236,12 +236,17 @@ nav#side .navbtn.on::before{content:"";position:absolute;left:0;top:7px;bottom:7
 #authgate input{width:100%;padding:11px 12px;font-size:14px}
 #authgate button{background:var(--primary);color:var(--primary-ink);border:0;border-radius:var(--radius-sm);padding:11px;font-size:14px;font-weight:700;cursor:pointer}
 #authgate #auth_msg{color:var(--bad);font-size:12.5px;min-height:16px}
+
+.livedot{width:8px;height:8px;border-radius:50%;background:var(--warn);display:inline-block;flex:none}
+.livedot.on{background:#4ade80;box-shadow:0 0 0 3px rgba(74,222,128,.22)}
+.livetxt{font-size:11px;opacity:.85}
 </style>
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 
 <div id="app">
   <header id="top">
@@ -297,6 +302,14 @@ function tokens(n){return new Set((n||'').toLowerCase().replace(/[^a-z0-9 ]/g,' 
 function simNames(a,b){const A=tokens(a),B=tokens(b);if(!A.size||!B.size)return 0;let inter=0;A.forEach(t=>{if(B.has(t))inter++;});return inter/(A.size+B.size-inter);}
 const EDITABLE_LISTS=['Source of Contact','Sector','Startup Stage','Application Stage','Support Required','KDEM Action Taken','Priority'];
 function listFor(name){return (LISTS[name]||[]);}
+/* ---- user-created custom fields (made during import, stored for everyone) ---- */
+let CUSTOM_FIELDS=[];
+function cfKey(label){return 'cf_'+String(label).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);}
+function cfLabel(key){const f=CUSTOM_FIELDS.find(x=>x.key===key);return f?f.label:key.replace(/^cf_/,'').replace(/_/g,' ');}
+async function saveCustomFields(){
+  if(!S.db||!S.canWrite)return false;
+  try{await S.db.doc('config/customFields').set({fields:CUSTOM_FIELDS});return true;}catch(e){return false;}
+}
 
 /* ---------- KPI compute ---------- */
 function kpis(rows){
@@ -337,6 +350,8 @@ function renderWho(){
   w.append(el('span',{class:'rolechip'},role));
   const nm=S.meName||(isAdmin?ADMIN_NAME:'');
   if(nm) w.append(el('span',{},nm));
+  w.append(el('span',{class:'livedot'+(S.dbReady?' on':''),title:S.dbReady?'Live — changes appear for everyone instantly':'Connecting…'}));
+  w.append(el('span',{class:'livetxt'},S.dbReady?'Live':'…'));
 }
 
 /* ---------- MAIN ROUTER ---------- */
@@ -536,7 +551,7 @@ async function mergeInto(primaryId,secId){
   const ok=await writeStartup(r);
   if(ok){
     if(S.db){try{await S.db.collection('startups').doc(secId).delete();}catch(e){}}
-    if(!S.dbReady){const i=S.startups.findIndex(x=>x.id===primaryId);if(i>=0)S.startups[i]=r;S.startups=S.startups.filter(x=>x.id!==secId);}
+    removeLocal(secId);
     toast('Merged');renderMain();
   }
 }
@@ -546,7 +561,6 @@ async function dismissDup(grp){
     const r=JSON.parse(JSON.stringify(S.startups.find(x=>x.id===r0.id)));if(!r)continue;
     r.remarks=r.remarks||[];r.remarks.push({text:'Reviewed — confirmed NOT a duplicate of the other matched record(s)',at:new Date().toISOString(),by:S.me||'',byName:S.meName||ADMIN_NAME});
     r.dupOk=true;await writeStartup(r);
-    if(!S.dbReady){const i=S.startups.findIndex(x=>x.id===r.id);if(i>=0)S.startups[i]=r;}
   }
   toast('Marked as not duplicates');renderMain();
 }
@@ -577,6 +591,32 @@ function viewSettings(m){
   if(S.canWrite)m.append(el('div',{style:'margin-top:16px;display:flex;gap:9px'},
     el('button',{class:'btn',onclick:async()=>{if(await saveConfig())renderMain();}},'Save all dropdowns'),
     el('button',{class:'btn sec',onclick:renderMain},'Reset unsaved changes')));
+
+  // ---- custom fields the team created from an uploaded file ----
+  m.append(el('div',{class:'page-h',style:'margin-top:26px'},el('div',{},
+    el('span',{class:'kicker'},'Your own columns'),
+    el('h1',{},'Custom Fields'),
+    el('p',{},'Columns you kept from an uploaded file. They appear on every startup, in the edit form and in the Excel export.'))));
+  const cfCard=el('div',{class:'card'});const cfb=el('div',{class:'cb'});
+  if(!CUSTOM_FIELDS.length){
+    cfb.append(el('div',{style:'color:var(--faint);font-size:12.5px'},
+      'None yet. When you upload a file with a column the tracker does not know, choose “Create as a new field in the tracker” on the column-matching screen and it will appear here.'));
+  }else{
+    CUSTOM_FIELDS.forEach((cf,i)=>{
+      const row=el('div',{class:'optrow'});
+      const inp=el('input',{value:cf.label,onchange:e=>{CUSTOM_FIELDS[i].label=e.target.value;}});
+      if(!S.canWrite)inp.disabled=true;
+      row.append(inp);
+      row.append(el('span',{class:'chip mute',style:'align-self:center'},'used by '+S.startups.filter(s=>s.custom&&s.custom[cf.key]).length+' startups'));
+      if(S.canWrite)row.append(el('button',{class:'btn sec sm',onclick:()=>{CUSTOM_FIELDS.splice(i,1);renderMain();}},'✕'));
+      cfb.append(row);
+    });
+    if(S.canWrite)cfb.append(el('div',{style:'margin-top:12px'},
+      el('button',{class:'btn',onclick:async()=>{if(await saveCustomFields()){toast('Custom fields saved');renderMain();}else toast('Could not save');}},'Save custom fields')));
+    cfb.append(el('div',{style:'margin-top:10px;font-size:11.5px;color:var(--faint)'},
+      'Removing a field here hides the column; the values already stored on each startup are kept.'));
+  }
+  cfCard.append(cfb);m.append(cfCard);
 }
 function miniStat(l,v,c){return el('div',{},el('div',{class:'val mono',style:`font-size:24px;font-weight:600;color:var(--${c})`},String(v)),el('div',{style:'font-size:11.5px;color:var(--muted)'},l));}
 function pc(v,t){return t?Math.round(v/t*100)+'%':'0%';}
@@ -672,10 +712,15 @@ function renderOverlay(){
   // quick call / status update panel
   if(S.canWrite) b.append(quickPanel(r));
   b.append(dlGroup('Identification & Source',[['Sl. date added',r.date],['Source of contact',r.source],['Event / meeting',r.event],['Founder met in person',r.met],['Email ID',r.email],['Contact number',r.phone]]));
-  b.append(dlGroup('Profile & Cluster',[['District / city',r.district],['KDEM cluster',r.cluster],['Sector',r.sector],['Startup stage',r.stage]]));
+  b.append(dlGroup('Profile & Cluster',[['District / city',r.district],['KDEM cluster',r.cluster],['Cohort',r.cohort],['Sector',r.sector],['Sub-sector',r.subSector],['Startup stage',r.stage]]));
+  b.append(dlGroup('Company Details',[['Company profile',r.companyProfile],['Product / service',r.product],['Offering / customer focus',r.offering],['Year founded',r.yearFounded],['Team strength',r.teamStrength],['Tech readiness (TRL)',r.trl],['Website',r.website],['LinkedIn',r.linkedin]].concat(Object.entries(r.extra||{}).map(function(e){return [e[0],e[1]];}))));
   b.append(dlGroup('Registration Status',[['DPIIT recognised',r.dpiit],['DPIIT number',r.dpiitNo],['Registered on Startup Karnataka (KITS)',r.skReg],['KITS registration number',r.kitsNo],['Applied for SK registration',r.appliedSK],['SK application date',r.appSKdate],['KITS reply — registration',r.kitsConfReg]]));
   b.append(dlGroup('Fiscal Incentives',[['Fiscal incentive applied',r.fiApplied],['Application date',r.fiDate],['Incentives availed',(r.incentives||[]).join(', ')],['KITS reply — incentive',r.kitsConfInc],['Planning to apply',r.planning],['Application stage',r.appStage],['Aware of incentives',r.aware],['Reason / challenge',r.reason]]));
   b.append(dlGroup('Enablement & Follow-up',[['Support required',r.support],['KDEM action taken',r.action],['Priority',r.priority],['Follow-up required',r.fuReq],['Next follow-up date',r.fuDate],['Consent to contact',r.consent],['Action notes / remarks',r.notes]]));
+  if(CUSTOM_FIELDS.length){
+    const cfPairs=CUSTOM_FIELDS.map(cf=>[cf.label,(r.custom||{})[cf.key]]);
+    if(cfPairs.some(p=>p[1]))b.append(dlGroup('Custom Fields',cfPairs));
+  }
   // KITS coordination — highlighted hand-off block
   const kg=dlGroup('KITS Coordination',[['Action needed from KITS',r.kitsActionNeeded],['KITS status',r.kitsStatus],['KITS response / reply',r.kitsResponse],['KITS action taken',r.kitsActionTaken],['KITS reply — registration',r.kitsConfReg],['KITS reply — incentive',r.kitsConfInc]]);
   kg.classList.add('kitsblock');b.append(kg);
@@ -744,7 +789,7 @@ function quickPanel(src){
     r.history=r.history||[];r.history.push({action:'Call update',at:new Date().toISOString(),by:S.me||'',byName:S.meName||''});
     if(r.history.length>20)r.history=r.history.slice(-20);
     const ok=await writeStartup(r);
-    if(ok){if(!S.dbReady){const i=S.startups.findIndex(x=>x.id===r.id);if(i>=0)S.startups[i]=r;}toast('Status updated');S.detail=r.id;renderOverlay();renderMain();}
+    if(ok){toast('Status updated');S.detail=r.id;renderOverlay();renderMain();}
   }},'Save update'));
   cb.append(bar);card.append(cb);return card;
 }
@@ -768,7 +813,7 @@ function fallbackCopy(t,msg){const a=el('textarea',{});a.value=t;document.body.a
 /* ---------- ADD / EDIT FORM ---------- */
 function viewAdd(m){S.editing='new';m.append(el('div',{class:'page-h'},el('div',{},el('h1',{},'Add a Startup'),el('p',{},'Add one startup with all its details and founders'))));
   m.append(formInline());}
-function blankStartup(){return{id:'',name:'',date:todayStr(),source:'Event / Meeting',founders:[{name:'',email:'',phone:''}],email:'',phone:'',met:'No',event:'',sector:'',stage:'',district:'',cluster:'Bengaluru Urban',dpiit:'No',dpiitNo:'',skReg:'No',kitsNo:'',appliedSK:'No',appSKdate:'',kitsConfReg:'',fiApplied:'No',fiDate:'',incentives:[],kitsConfInc:'',planning:'',appStage:'Not Applied',aware:'No',reason:'',support:'',action:'',notes:'',priority:'Medium',fuReq:'No',fuDate:'',consent:'Yes',kitsActionNeeded:'',kitsStatus:'',kitsResponse:'',kitsActionTaken:'',history:[],remarks:[]};}
+function blankStartup(){return{id:'',name:'',date:todayStr(),source:'Event / Meeting',founders:[{name:'',email:'',phone:''}],email:'',phone:'',met:'No',event:'',sector:'',stage:'',district:'',cluster:'Bengaluru Urban',dpiit:'No',dpiitNo:'',skReg:'No',kitsNo:'',appliedSK:'No',appSKdate:'',kitsConfReg:'',fiApplied:'No',fiDate:'',incentives:[],kitsConfInc:'',planning:'',appStage:'Not Applied',aware:'No',reason:'',support:'',action:'',notes:'',priority:'Medium',fuReq:'No',fuDate:'',consent:'Yes',kitsActionNeeded:'',kitsStatus:'',kitsResponse:'',kitsActionTaken:'',website:'',linkedin:'',cohort:'',subSector:'',yearFounded:'',companyProfile:'',product:'',offering:'',trl:'',teamStrength:'',extra:{},custom:{},history:[],remarks:[]};}
 function formInline(){const wrap=el('div',{class:'card'});wrap.append(formBody(S.editing==='new'?blankStartup():{...S.startups.find(x=>x.id===S.editing)},true));return wrap;}
 function formDrawer(){
   const r=S.editing==='new'?blankStartup():{...S.startups.find(x=>x.id===S.editing)};
@@ -810,8 +855,20 @@ function formBody(r,inline){
   g.append(el('div',{class:'sectitle'},'Profile & Cluster'));
   g.append(txt('district','District / City'));
   g.append(sel('cluster','KDEM Cluster',CLUSTERS));
+  g.append(txt('cohort','Cohort'));
   g.append(sel('sector','Sector',LISTS['Sector']||[]));
+  g.append(txt('subSector','Sub-sector'));
   g.append(sel('stage','Startup Stage',LISTS['Startup Stage']||[]));
+
+  g.append(el('div',{class:'sectitle'},'Company Details'));
+  g.append(ta('companyProfile','Company Profile'));
+  g.append(ta('product','Product / Service'));
+  g.append(ta('offering','Offering / Customer Focus'));
+  g.append(txt('yearFounded','Year Founded'));
+  g.append(txt('teamStrength','Team Strength'));
+  g.append(txt('trl','Technology Readiness Level (TRL)'));
+  g.append(txt('website','Website'));
+  g.append(txt('linkedin','LinkedIn'));
 
   g.append(el('div',{class:'sectitle'},'Registration'));
   g.append(sel('dpiit','DPIIT Recognised?',['Yes','No']));
@@ -834,6 +891,14 @@ function formBody(r,inline){
   incF.append(ig);g.append(incF);
   g.append(ta('planning','Incentives Planning to Apply'));
 
+  if(CUSTOM_FIELDS.length){
+    g.append(el('div',{class:'sectitle'},'Custom Fields'));
+    CUSTOM_FIELDS.forEach(cf=>{
+      const fw=el('div',{class:'field'});fw.append(el('label',{},cf.label));
+      const inp=el('input',{value:((r.custom||{})[cf.key])||'',oninput:e=>{r.custom=r.custom||{};r.custom[cf.key]=e.target.value;}});
+      fw.append(inp);g.append(fw);
+    });
+  }
   g.append(el('div',{class:'sectitle'},'KITS Coordination — for KITS team to fill'));
   g.append(ta('kitsActionNeeded','Action Needed from KITS (what KDEM is requesting)'));
   g.append(sel('kitsStatus','KITS Status',KITS_STATUS));
@@ -871,17 +936,44 @@ async function saveForm(r,inline){
   if(r.history.length>20)r.history=r.history.slice(-20);
   const ok=await writeStartup(r);
   if(ok){toast(isNew?'Startup added':'Changes saved');S.editing=null;
-    if(!S.dbReady){const i=S.startups.findIndex(x=>x.id===r.id);if(i<0)S.startups.push(r);else S.startups[i]=r;}
     if(inline){go('startups');}else{S.detail=isNew?null:r.id;renderOverlay();}
     renderMain();}
 }
+function applyLocal(r){            // keep the on-screen copy in step immediately
+  const i=S.startups.findIndex(x=>x.id===r.id);
+  if(i<0)S.startups.unshift(r); else S.startups[i]=r;
+}
+function removeLocal(id){S.startups=S.startups.filter(x=>x.id!==id);}
 async function writeStartup(r){
   if(!S.db||!S.canWrite){
-    if(!S.dbReady){return true;} // local-only fallback display
+    if(!S.dbReady){applyLocal(r);return true;}
     toast('You have view-only access');return false;
   }
-  try{await S.db.collection('startups').doc(r.id).set(r);return true;}
+  try{
+    await S.db.collection('startups').doc(r.id).set(r);
+    applyLocal(r);                   // instant: no waiting for the realtime echo
+    return true;
+  }
   catch(e){if(e&&e.code==='invalid_argument'){S.canWrite=false;renderWho();renderMain();toast('You have view-only access');}else{toast('Could not save — try again');}return false;}
+}
+async function writeMany(list,onProgress){   // chunked bulk write — fast for big imports
+  if(!S.db||!S.canWrite){list.forEach(applyLocal);return list.length;}
+  const coll=S.db.collection('startups');
+  let done=0;
+  if(coll.setMany){
+    const SIZE=200;
+    for(let i=0;i<list.length;i+=SIZE){
+      const chunk=list.slice(i,i+SIZE);
+      try{await coll.setMany(chunk);}
+      catch(e){for(const r of chunk){try{await coll.doc(r.id).set(r);}catch(_){}}}
+      chunk.forEach(applyLocal);
+      done+=chunk.length; if(onProgress)onProgress(done,list.length);
+    }
+  }else{
+    for(const r of list){try{await coll.doc(r.id).set(r);applyLocal(r);}catch(e){}
+      done++; if(onProgress&&done%25===0)onProgress(done,list.length);}
+  }
+  return done;
 }
 async function addRemark(id,text){
   const src=S.startups.find(x=>x.id===id);if(!src)return;
@@ -890,13 +982,16 @@ async function addRemark(id,text){
   if(r.remarks.length>50)r.remarks=r.remarks.slice(-50);
   r.history=r.history||[];r.history.push({action:'Remark added',at:new Date().toISOString(),by:S.me||'',byName:S.meName||''});
   const ok=await writeStartup(r);
-  if(ok){if(!S.dbReady){const i=S.startups.findIndex(x=>x.id===id);if(i>=0)S.startups[i]=r;}toast('Remark added');S.detail=id;renderOverlay();}
+  if(ok){toast('Remark added');S.detail=id;renderOverlay();renderMain();}
 }
 /* ---------- CONFIG: user-managed dropdowns ---------- */
 async function loadConfig(){
   if(!S.db)return;
   try{const snap=await S.db.doc('config/dropdowns').get();
     if(snap.exists){const d=snap.data()||{};Object.keys(d).forEach(k=>{if(Array.isArray(d[k])&&d[k].length)LISTS[k]=d[k];});S._cfgVer=snap.metadata;}
+  }catch(e){}
+  try{const cs=await S.db.doc('config/customFields').get();
+    if(cs.exists){const d=cs.data()||{};if(Array.isArray(d.fields))CUSTOM_FIELDS=d.fields;}
   }catch(e){}
 }
 async function saveConfig(){
@@ -907,48 +1002,183 @@ async function saveConfig(){
 }
 
 /* ---------- IMPORT / UPDATE (file upload + auto column match) ---------- */
-const IMPORT_FIELDS=[
- {k:'name',label:'Startup Name',syn:['startup name','company name','company','name of startup','organisation','organization','startup']},
- {k:'founder',label:'Founder / Contact',syn:['founder','co-founder','point of contact','contact name','founder name','poc','promoter','director']},
- {k:'email',label:'Email',syn:['email address','official email','registered email','email id','email','mail']},
+const IMPORT_FIELDS = [
+ {k:'id',label:'Startup ID (exact match)',syn:['startup id','record id','tracker id']},
+ {k:'name',label:'Startup Name',syn:['startup name','name of startup','company name','organisation name','organization name','startup']},
+ {k:'founder',label:'Founder / Contact',syn:['founder / point of contact','founder point of contact','founder','co-founder','point of contact','primary contact','contact name','contact person','founder name','poc','promoter','director']},
+ {k:'email',label:'Email',syn:['email address','official email','registered email','email id','contact email','email','mail']},
  {k:'phone',label:'Contact Number',syn:['contact number','phone number','mobile number','whatsapp','mobile','phone','number']},
- {k:'district',label:'District / City',syn:['district / city','district','city','location','place','taluk']},
+ {k:'website',label:'Website',syn:['website','url','web site','site']},
+ {k:'linkedin',label:'LinkedIn',syn:['linkedin','linked in','linkedin url']},
+ {k:'source',label:'Source of Contact',syn:['source of contact','source']},
+ {k:'district',label:'District / City',syn:['location / district','location district','district / city','district','city','location','place','taluk']},
  {k:'cluster',label:'KDEM Cluster',syn:['kdem cluster','cluster']},
- {k:'sector',label:'Sector',syn:['sector','industry','domain']},
+ {k:'cohort',label:'Cohort',syn:['cohort','batch']},
+ {k:'sector',label:'Sector',syn:['industry / sector','industry sector','industry','sector','domain']},
+ {k:'subSector',label:'Sub-sector',syn:['sub-sector','sub sector','subsector']},
  {k:'stage',label:'Startup Stage',syn:['current stage','startup stage','stage of startup','stage']},
+ {k:'yearFounded',label:'Year Founded',syn:['year founded','founded','year of incorporation','incorporation year','founded in']},
+ {k:'companyProfile',label:'Company Profile',syn:['company profile','about the startup','about','description','profile','overview','company description']},
+ {k:'product',label:'Product / Service',syn:['product / service','product service','product','service','products']},
+ {k:'offering',label:'Offering / Customer Focus',syn:['offering / customer focus','offering customer focus','offering','customer focus','value proposition']},
+ {k:'trl',label:'Technology Readiness Level',syn:['technology readiness level trl','technology readiness level','trl','readiness level']},
+ {k:'teamStrength',label:'Team Strength',syn:['team strength','team size','employees','headcount','number of employees']},
  {k:'dpiit',label:'DPIIT Recognised?',syn:['dpiit recognised','dpiit recognized','is your startup dpiit','dpiit']},
  {k:'dpiitNo',label:'DPIIT Number',syn:['dpiit recognition number','dpiit number','dpiit no']},
- {k:'skReg',label:'SK Registered?',syn:['registered on startup karnataka','startup karnataka registration','have you registered','sk registered','kits registration status','registration status','registered with startup karnataka']},
+ {k:'skReg',label:'SK Registered?',syn:['registered on startup karnataka kits','registered on startup karnataka','startup karnataka registration','have you registered','sk registered','kits registration status','registration status','registered with startup karnataka']},
  {k:'kitsNo',label:'KITS Reg Number',syn:['kits registration number','startup karnataka registration no','sk registration number','kits number','registration no']},
  {k:'appliedSK',label:'Applied for SK Reg?',syn:['applied for startup karnataka registration','applied for sk registration','applied on portal']},
- {k:'kitsConfReg',label:'KITS reply — Registration',syn:['kits team to confirm','kits reply registration','kits confirmation registration']},
+ {k:'appSKdate',label:'SK Application Date',syn:['sk application date','if applied mention application date']},
+ {k:'kitsConfReg',label:'KITS to Confirm — Registration',syn:['kits to confirm registration','kits team to confirm','kits reply registration','kits confirmation registration']},
  {k:'fiApplied',label:'Fiscal Incentive Applied?',syn:['fiscal incentive applied','applied for fiscal incentive','incentive applied','have you applied for any fiscal']},
+ {k:'fiDate',label:'Fiscal Incentive Application Date',syn:['fiscal incentive application date','incentive application date']},
+ {k:'kitsConfInc',label:'KITS to Confirm — Incentive',syn:['kits to confirm incentive','kits reply incentive','kits confirmation incentive']},
  {k:'incentives',label:'Incentives Availed',syn:['incentives availed','incentive availed','already availed','availed','which fiscal incentive','which incentive did you']},
- {k:'planning',label:'Planning to Apply',syn:['planning to apply','wish to avail','plan to apply','incentives planning']},
+ {k:'planning',label:'Planning to Apply',syn:['incentive s planning to apply','planning to apply','wish to avail','plan to apply','incentives planning']},
  {k:'appStage',label:'Application Stage',syn:['application stage','status of your application','current status of application','status of application']},
- {k:'kitsConfInc',label:'KITS reply — Incentive',syn:['kits reply incentive','kits confirmation incentive']},
  {k:'aware',label:'Aware of Incentives?',syn:['aware of available incentives','aware of incentives','aware']},
- {k:'reason',label:'Reason / Challenge',syn:['reason for not applying','reason not applied','challenge faced','biggest challenge','main reasons','why not registered']},
+ {k:'reason',label:'Reason / Challenge',syn:['reason not applied / challenge faced','reason not applied challenge faced','reason for not applying','reason not applied','challenge faced','biggest challenge','main reasons','why not registered']},
  {k:'support',label:'Support Required',syn:['support required','support needed','help required','assistance']},
  {k:'action',label:'KDEM Action Taken',syn:['kdem action taken','action taken']},
- {k:'event',label:'Event / Source Name',syn:['event','meeting','source of contact','source','program','session']},
- {k:'met',label:'Founder Met in Person?',syn:['founder met in person','met in person','met founder','met']},
+ {k:'notes',label:'Action Notes / Remarks',syn:['action notes / remarks','action notes remarks','action notes','notes / remarks','remarks','notes','comments','additional details']},
  {k:'priority',label:'Priority',syn:['priority']},
+ {k:'fuReq',label:'Follow-up Required?',syn:['follow up required','follow-up required']},
+ {k:'fuDate',label:'Next Follow-up Date',syn:['next follow up date','next follow-up date','follow up date','follow-up date']},
+ {k:'event',label:'Event / Meeting Name',syn:['event / meeting name','event meeting name','event','meeting','program','session']},
+ {k:'met',label:'Founder Met in Person?',syn:['founder met in person','met in person','met founder','met']},
  {k:'consent',label:'Consent to Contact?',syn:['consent to contact','may contact','representative contact','reach out']},
- {k:'notes',label:'Notes / Remarks',syn:['action notes','notes / remarks','remarks','notes','comments','additional details']},
- {k:'date',label:'Date',syn:['timestamp','date added','date']},
+ {k:'kitsActionNeeded',label:'Action Needed from KITS',syn:['action needed from kits','kits action needed']},
+ {k:'kitsStatus',label:'KITS Status',syn:['kits status']},
+ {k:'kitsResponse',label:'KITS Response / Reply',syn:['kits response / reply','kits response reply','kits response','kits reply']},
+ {k:'kitsActionTaken',label:'KITS Action Taken',syn:['kits action taken']},
+ {k:'date',label:'Date Added',syn:['date added','timestamp','date']},
+ {k:'_tick0',label:'Tick: State GST',syn:['state gst']},
+ {k:'_tick1',label:'Tick: Internship',syn:['internship']},
+ {k:'_tick2',label:'Tick: Patent',syn:['patent']},
+ {k:'_tick3',label:'Tick: PF/ESI',syn:['pf esi','pf/esi']},
+ {k:'_tick4',label:'Tick: R&D Grant',syn:['r d grant','r&d grant']},
+ {k:'_tick5',label:'Tick: Cloud Storage',syn:['cloud storage']},
+ {k:'_tick6',label:'Tick: Quality Cert.',syn:['quality cert','quality certification']},
+ {k:'_tick7',label:'Tick: Marketing',syn:['marketing']},
+ {k:'_remarksLog',label:'Remarks Log (read-only — not imported)',syn:['remarks log read only','remarks log']}
 ];
+
 function normH(s){return String(s==null?'':s).toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();}
+const IGNORE_HEADER = /\(auto\)|^sl\.?\s*no\.?$|^s\.?\s*no\.?$|^sr\.?\s*no\.?$|^#$|^last updated$/i;
+
 function guessField(header){
-  const h=normH(header);if(!h)return '';
-  for(const f of IMPORT_FIELDS){if(f.syn.some(s=>h===s))return f.k;}
+  const raw=String(header==null?'':header).trim();
+  if(!raw || IGNORE_HEADER.test(raw)) return '';
+  const h=normH(raw); if(!h) return '';
+  for(const f of IMPORT_FIELDS){ if(f.syn.some(s=>h===s)) return f.k; }
   let best='',bestlen=0;
-  for(const f of IMPORT_FIELDS){for(const s of f.syn){if((h.includes(s)||s.includes(h))&&s.length>bestlen){best=f.k;bestlen=s.length;}}}
+  for(const f of IMPORT_FIELDS) for(const s of f.syn){
+    if((h.includes(s)||s.includes(h)) && s.length>bestlen){best=f.k;bestlen=s.length;}
+  }
   return best;
+}
+
+/* Find the header row: the row in the first 15 with the most
+   recognisable column names. Handles files whose data starts at
+   row 6 under a title block, like the KDEM master tracker. */
+/* Custom fields the team created are matched back by their label, so an
+   exported file with custom columns re-uploads cleanly. */
+function guessFieldWithCustom(header){
+  const raw=String(header==null?'':header).trim();
+  if(!raw) return '';
+  const n=normH(raw);
+  const list=(typeof CUSTOM_FIELDS!=='undefined'&&CUSTOM_FIELDS)?CUSTOM_FIELDS:[];
+  const hit=list.find(function(c){return normH(c.label)===n||c.key===cfKey(raw);});
+  if(hit) return 'cf:'+hit.key;
+  return guessField(raw);
+}
+function detectHeaderRow(rows){
+  let bestIdx=0,bestScore=-1;
+  const limit=Math.min(rows.length,15);
+  for(let i=0;i<limit;i++){
+    const r=rows[i]||[];
+    // Count DISTINCT recognisable headings. A merged title row repeats the
+    // same text across every cell, so it scores 1 and never wins.
+    const hits=new Set();
+    r.forEach(c=>{
+      const t=String(c==null?'':c).trim();
+      if(t && guessField(t)) hits.add(t.toLowerCase());
+    });
+    const score=hits.size;
+    if(score>bestScore){bestScore=score;bestIdx=i;}
+  }
+  return bestScore>=3 ? bestIdx : 0;
+}
+
+/* Per-sheet column keys, duplicate-safe: a header appearing twice
+   becomes "Header" and "Header (2)" so both can be mapped. */
+function colKeys(header){
+  const seen={},keys=[];
+  header.forEach(h=>{
+    const base=String(h==null?'':h).trim();
+    const lc=base.toLowerCase();
+    seen[lc]=(seen[lc]||0)+1;
+    keys.push(seen[lc]>1 ? base+' ('+seen[lc]+')' : base);
+  });
+  return keys;
+}
+
+function isTicked(v){
+  const s=String(v==null?'':v).trim().toLowerCase();
+  return s==='✓'||s==='x'||s==='y'||s==='yes'||s==='true'||s==='1';
+}
+
+/* Build one record from a sheet row using the confirmed map. */
+function buildRec(sheet, raw, map){
+  const rec={}, extra={}; let hasTicks=false; const ticks=[];
+  sheet.keys.forEach((key,i)=>{
+    const k=map[key];
+    const v=String(raw[i]==null?'':raw[i]).trim();
+    if(k && k.indexOf('cf:')===0){ if(v!==''){rec._custom=rec._custom||{};rec._custom[k.slice(3)]=v;} return; }
+    if(k && k.indexOf('_tick')===0){
+      hasTicks=true;
+      if(isTicked(v)) ticks.push(INCENTIVES[parseInt(k.slice(5),10)]);
+      return;
+    }
+    if(v==='') return;
+    if(k){ if(rec[k]===undefined) rec[k]=v; }
+    else { const h=sheet.header[i]; if(h && !IGNORE_HEADER.test(String(h).trim())) extra[h]=v; }
+  });
+  if(hasTicks){ rec.incentives=ticks; rec._hasTicks=true; }
+  if(Object.keys(extra).length) rec._extra=extra;
+  return rec;
+}
+
+/* Parse a workbook (already converted to {name, rows:[[...]]} sheets). */
+function parseSheets(rawSheets){
+  const sheets=[];
+  rawSheets.forEach(s=>{
+    const rows=(s.rows||[]).filter(r=>r.some(c=>String(c==null?'':c).trim()!==''));
+    if(rows.length<2) return;
+    const hi=detectHeaderRow(rows);
+    const header=(rows[hi]||[]).map(h=>String(h==null?'':h).trim());
+    const mapped=header.map(h=>guessField(h)).filter(Boolean);
+    if(mapped.length<2) return;                                   // not a data sheet
+    // A real startup sheet must carry an identifying column — this skips
+    // Lists / Dashboard / Summary tabs that happen to use familiar words.
+    const ID_FIELDS=['id','name','email','dpiitNo'];
+    if(!mapped.some(k=>ID_FIELDS.indexOf(k)>=0)) return;
+    sheets.push({name:s.name, header:header, keys:colKeys(header), rows:rows.slice(hi+1)});
+  });
+  if(!sheets.length) return null;
+  const union=[],seen=new Set();
+  sheets.forEach(s=>s.keys.forEach((k,i)=>{
+    const lc=k.toLowerCase();
+    if(k && !seen.has(lc)){seen.add(lc);union.push({key:k, header:s.header[i]});}
+  }));
+  const map={};
+  union.forEach(u=>{ map[u.key]=guessFieldWithCustom(u.header); });
+  return {sheets, union, map};
 }
 function viewImport(m){
   m.append(el('div',{class:'page-h'},el('div',{},el('h1',{},'Import / Update'),el('p',{},'Upload any event sheet, Google-Form export or your own survey (.xlsx or .csv). Columns are matched for you — existing startups are updated, new ones added.'))));
-  m.append(el('div',{class:'banner info'},'You do not need a fixed format. Upload the file as-is; the system reads its column headers and maps them automatically. You confirm the matches on the next screen before anything is saved. Matching is by DPIIT number, email, then startup name.'));
+  m.append(el('div',{class:'banner info'},'You do not need a fixed format. Upload the file as-is — every sheet is read, column headings are matched for you, and you confirm the matches before anything is saved. Rows are matched by Startup ID first (exact), then DPIIT number, email, and startup name.'));
+  m.append(el('div',{class:'banner good'},'Round-trip: use Export Excel, send that file to KITS or your team to edit, then upload it back here. The Startup ID column makes every edit land on the right startup, and new rows typed at the bottom are added as new startups.'));
   const bar=el('div',{class:'toolbar'});
   const fileBtn=el('button',{class:'btn',onclick:()=>$('#impfile').click()},'Choose Excel / CSV file');
   const fi=el('input',{type:'file',id:'impfile',accept:'.xlsx,.xls,.csv',style:'display:none',onchange:handleImportFile});
@@ -965,12 +1195,10 @@ function handleImportFile(e){
   rd.onload=ev=>{
     try{
       const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
-      const ws=wb.Sheets[wb.SheetNames[0]];
-      const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
-      const rows=aoa.filter(r=>r.some(c=>String(c).trim()!==''));
-      if(rows.length<2){toast('File has no data rows');return;}
-      S._imp={headers:rows[0].map(h=>String(h).trim()),rows:rows.slice(1)};
-      S._impMap=S._imp.headers.map(h=>guessField(h));
+      const rawSheets=wb.SheetNames.map(sn=>({name:sn,rows:XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:false,defval:''})}));
+      const parsed=parseSheets(rawSheets);
+      if(!parsed){toast('No startup data found — the file needs a Startup Name (or Email / DPIIT) column');return;}
+      S._imp=parsed;
       renderMapping();
     }catch(err){toast('Could not read this file — try saving it as .xlsx or .csv');}
   };
@@ -978,20 +1206,36 @@ function handleImportFile(e){
 }
 function renderMapping(){
   const map=$('#impmap');map.innerHTML='';$('#imparea').innerHTML='';
-  const H=S._imp.headers;
+  const U=S._imp.union;const totalRows=S._imp.sheets.reduce((a,s)=>a+s.rows.length,0);
+  const sheetNote=S._imp.sheets.map(s=>s.name+' ('+s.rows.length+')').join(', ');
   const card=el('div',{class:'card'});
-  card.append(el('div',{class:'ch'},el('h3',{},'Confirm column matches'),el('span',{class:'note'},H.length+' columns · '+S._imp.rows.length+' rows')));
+  card.append(el('div',{class:'ch'},el('h3',{},'Confirm column matches'),el('span',{class:'note'},U.length+' columns · '+totalRows+' rows · '+S._imp.sheets.length+' sheet(s): '+sheetNote)));
   const cb=el('div',{class:'cb'});
-  cb.append(el('p',{style:'margin:0 0 12px;color:var(--muted);font-size:12.5px'},'Each column was matched automatically. Change any that look wrong, or set to “— ignore —”. Then preview.'));
+  cb.append(el('p',{style:'margin:0 0 12px;color:var(--muted);font-size:12.5px'},'Every data sheet in the file is included. Each column was matched automatically — change any that look wrong, or set to “— ignore —”. Then preview.'));
   const grid=el('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:9px'});
-  H.forEach((h,i)=>{
+  U.forEach(u=>{
     const f=el('div',{class:'field'});
-    const sample=(S._imp.rows.find(r=>String(r[i]).trim()!=='')||[])[i]||'';
-    f.append(el('label',{},h||('Column '+(i+1)),el('span',{style:'color:var(--faint);font-weight:400'}, sample?('  e.g. '+String(sample).slice(0,28)):'')));
-    const sel=el('select',{onchange:e=>S._impMap[i]=e.target.value});
+    let sample='';
+    for(const s of S._imp.sheets){const i=s.keys.indexOf(u.key);if(i>=0){const rr=s.rows.find(r=>String(r[i]==null?'':r[i]).trim()!=='');if(rr){sample=String(rr[i]);break;}}}
+    f.append(el('label',{},u.key,el('span',{style:'color:var(--faint);font-weight:400'}, sample?('  e.g. '+sample.slice(0,30)):'')));
+    const sel=el('select',{onchange:e=>{
+      if(e.target.value==='__new__'){
+        const key=cfKey(u.key);
+        if(!CUSTOM_FIELDS.some(x=>x.key===key)){CUSTOM_FIELDS.push({key:key,label:u.key});S._newCustom=S._newCustom||[];S._newCustom.push(key);}
+        S._imp.map[u.key]='cf:'+key;
+        renderMapping();
+        toast('New field created: '+u.key);
+        return;
+      }
+      S._imp.map[u.key]=e.target.value;
+    }});
     sel.append(el('option',{value:''},'— ignore —'));
-    IMPORT_FIELDS.forEach(ff=>{const op=el('option',{value:ff.k},ff.label);if(S._impMap[i]===ff.k)op.selected=true;sel.append(op);});
-    f.append(sel);grid.append(f);
+    IMPORT_FIELDS.forEach(ff=>{const op=el('option',{value:ff.k},ff.label);if(S._imp.map[u.key]===ff.k)op.selected=true;sel.append(op);});
+    CUSTOM_FIELDS.forEach(cf=>{const op=el('option',{value:'cf:'+cf.key},'★ '+cf.label+' (custom field)');if(S._imp.map[u.key]==='cf:'+cf.key)op.selected=true;sel.append(op);});
+    if(S.canWrite)sel.append(el('option',{value:'__new__'},'➕ Create as a new field in the tracker…'));
+    f.append(sel);
+    if(String(S._imp.map[u.key]||'').indexOf('cf:')===0)f.append(el('span',{class:'chip acc',style:'margin-top:4px;align-self:flex-start'},'new field'));
+    grid.append(f);
   });
   cb.append(grid);
   const upd=el('label',{style:'display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px'});
@@ -999,10 +1243,6 @@ function renderMapping(){
   cb.append(upd);
   cb.append(el('div',{style:'margin-top:12px'},el('button',{class:'btn',onclick:previewImport},'Preview')));
   card.append(cb);map.append(card);
-}
-function buildRec(raw){
-  const rec={};S._imp.headers.forEach((h,i)=>{const k=S._impMap[i];if(k){const v=String(raw[i]==null?'':raw[i]).trim();if(v!=='')rec[k]=v;}});
-  return rec;
 }
 function normVals(r){
   if(r.dpiit!=null)r.dpiit=yn(r.dpiit);
@@ -1025,6 +1265,7 @@ function matchList(v,list){const n=normH(v);return list.find(o=>normH(o)===n)||l
 const INCMAP=[['state gst','State GST'],['internship','Internship'],['patent','Patent'],['pf','PF/ESI'],['esi','PF/ESI'],['r&d','R&D Grant'],['research','R&D Grant'],['cloud','Cloud Storage'],['quality','Quality Cert.'],['marketing','Marketing']];
 function matchIncentive(x){const s=x.toLowerCase();for(const[k,v]of INCMAP)if(s.includes(k))return v;return '';}
 function findExisting(rec){
+  if(rec.id){const byId=S.startups.find(s=>s.id===rec.id);if(byId)return byId;}
   const dn=(rec.dpiitNo||'').replace(/\s/g,'').toLowerCase();
   const em=(rec.email||'').toLowerCase();
   const nm=norm(rec.name||'');
@@ -1036,7 +1277,8 @@ function findExisting(rec){
 function previewImport(){
   const upd=$('#impupd')?$('#impupd').checked:true;
   const area=$('#imparea');area.innerHTML='';
-  const recs=S._imp.rows.map(buildRec).filter(r=>r.name||r.email||r.dpiitNo).map(normVals);
+  const recs=[];
+  S._imp.sheets.forEach(s=>s.rows.forEach(raw=>{const r=buildRec(s,raw,S._imp.map);if(r.name||r.email||r.dpiitNo||r.id){recs.push(normVals(r));}}));
   if(!recs.length){area.append(el('div',{class:'banner warn'},'No usable rows — make sure a Startup Name (or email/DPIIT) column is mapped.'));return;}
   let nw=0,up=0,sk=0,po=0;const seen=new Set();
   recs.forEach(r=>{
@@ -1047,6 +1289,10 @@ function previewImport(){
     if(poss){r._mode='possible';r._possibleName=poss.name;po++;seen.add(key);return;}
     r._mode='new';nw++;seen.add(key);
   });
+  const unmatched=S._imp.union.filter(u=>!S._imp.map[u.key]);
+  if(unmatched.length)area.append(el('div',{class:'banner warn'},
+    unmatched.length+' column(s) in your file are not matched yet: '+unmatched.map(u=>u.key).slice(0,8).join(', ')+
+    (unmatched.length>8?'…':'')+'. Scroll up and either pick a field or choose “Create as a new field in the tracker” to keep that data.'));
   area.append(el('div',{class:'imp-stat'},
     el('div',{class:'s'},el('b',{},String(recs.length)),'rows'),
     el('div',{class:'s'},el('b',{style:'color:var(--good)'},String(nw)),'new'),
@@ -1070,29 +1316,55 @@ function previewImport(){
 async function commitImport(recs){
   if(!recs.length){toast('Nothing to apply');return;}
   if(!S.canWrite){toast('You have view-only access');return;}
-  let n=0,u=0;
+  const area=$('#imparea');
+  const bar=el('div',{class:'card',style:'margin-top:12px;padding:14px 16px'});
+  const lab=el('div',{style:'font-size:13px;font-weight:600;margin-bottom:8px'},'Preparing…');
+  const track=el('div',{style:'height:10px;border-radius:999px;background:var(--surface-2);overflow:hidden'});
+  const fillEl=el('div',{style:'height:100%;width:0%;background:var(--primary);transition:width .2s'});
+  track.append(fillEl);bar.append(lab,track);
+  if(area){area.innerHTML='';area.append(bar);}
+  const now=new Date().toISOString();
+  const batch=[];let n=0,u=0;
   for(const r of recs){
     let rec;
     if(r._mode==='update'&&r._target){
-      const ex=S.startups.find(x=>x.id===r._target);rec=JSON.parse(JSON.stringify(ex));
-      ['district','cluster','sector','stage','dpiit','dpiitNo','skReg','kitsNo','appliedSK','kitsConfReg','fiApplied','appStage','kitsConfInc','aware','reason','support','action','event','priority','consent','planning','met','notes'].forEach(k=>{if(r[k]!=null&&r[k]!=='')rec[k]=r[k];});
-      if(r.incentives&&r.incentives.length)rec.incentives=Array.from(new Set([...(rec.incentives||[]),...r.incentives]));
+      const ex=S.startups.find(x=>x.id===r._target);
+      if(!ex)continue;
+      rec=JSON.parse(JSON.stringify(ex));
+      ['district','cluster','sector','subSector','stage','dpiit','dpiitNo','skReg','kitsNo','appliedSK','appSKdate','kitsConfReg','fiApplied','fiDate','appStage','kitsConfInc','aware','reason','support','action','event','source','priority','consent','planning','met','notes','fuReq','fuDate','website','linkedin','cohort','yearFounded','companyProfile','product','offering','trl','teamStrength','kitsActionNeeded','kitsStatus','kitsResponse','kitsActionTaken'].forEach(k=>{if(r[k]!=null&&r[k]!=='')rec[k]=r[k];});
+      if(r._hasTicks)rec.incentives=r.incentives||[];
+      else if(r.incentives&&r.incentives.length)rec.incentives=Array.from(new Set([...(rec.incentives||[]),...r.incentives]));
+      if(r._extra)rec.extra=Object.assign(rec.extra||{},r._extra);
+      if(r._custom)rec.custom=Object.assign(rec.custom||{},r._custom);
       if(r.founder){rec.founders=rec.founders||[];if(!rec.founders.some(f=>norm(f.name)===norm(r.founder)))rec.founders.push({name:r.founder,email:r.email||'',phone:r.phone||''});}
-      rec.history=rec.history||[];rec.history.push({action:'Updated via import',at:new Date().toISOString(),by:S.me||'',byName:S.meName||''});
+      rec.history=rec.history||[];rec.history.push({action:'Updated via import',at:now,by:S.me||'',byName:S.meName||''});
       if(rec.history.length>20)rec.history=rec.history.slice(-20);
+      u++;
     }else{
-      rec=blankStartup();rec.id='s'+Date.now().toString(36)+Math.floor(Math.random()*100000);
-      Object.keys(r).forEach(k=>{if(k[0]!=='_'&&r[k]!=null)rec[k]=r[k];});
+      rec=blankStartup();const newId='s'+Date.now().toString(36)+Math.floor(Math.random()*1000000)+String(n);
+      Object.keys(r).forEach(k=>{if(k[0]!=='_'&&k!=='id'&&r[k]!=null)rec[k]=r[k];});
+      rec.id=newId;
+      if(r._extra)rec.extra=Object.assign(rec.extra||{},r._extra);
+      if(r._custom)rec.custom=Object.assign(rec.custom||{},r._custom);
       rec.founders=[{name:r.founder||'',email:r.email||'',phone:r.phone||''}];
-      rec.source=rec.source||'Event / Meeting';rec.date=rec.date||todayStr();
-      rec.history=[{action:'Imported',at:new Date().toISOString(),by:S.me||'',byName:S.meName||''}];
-      if(r._mode==='possible'&&r._possibleName){rec.remarks=[{text:'⚠ Possible duplicate of "'+r._possibleName+'" (different contact details) — verify on Duplicates page',at:new Date().toISOString(),by:S.me||'',byName:S.meName||ADMIN_NAME}];}
+      rec.source=rec.source||(r.cohort?('KAN '+r.cohort):'Event / Meeting');rec.date=rec.date||todayStr();
+      rec.history=[{action:'Imported',at:now,by:S.me||'',byName:S.meName||''}];
+      if(r._mode==='possible'&&r._possibleName)rec.remarks=[{text:'⚠ Possible duplicate of "'+r._possibleName+'" (different contact details) — verify on Duplicates page',at:now,by:S.me||'',byName:S.meName||ADMIN_NAME}];
+      n++;
     }
-    const ok=await writeStartup(rec);
-    if(ok){if(r._mode==='update')u++;else n++;if(!S.dbReady){const i=S.startups.findIndex(x=>x.id===rec.id);if(i<0)S.startups.push(rec);else S.startups[i]=rec;}}
-    await new Promise(res=>setTimeout(res,6));
+    batch.push(rec);
   }
-  toast(`Applied: ${n} new, ${u} updated`);S._imp=null;go('startups');
+  if(S._newCustom&&S._newCustom.length){await saveCustomFields();}
+  lab.textContent='Saving '+batch.length+' startups…';
+  const written=await writeMany(batch,(d,t)=>{
+    fillEl.style.width=Math.round(d/t*100)+'%';
+    lab.textContent='Saving… '+d+' of '+t;
+  });
+  fillEl.style.width='100%';
+  lab.textContent='Done — '+written+' saved';
+  toast('Applied: '+n+' new, '+u+' updated');
+  S._imp=null;S._newCustom=[];
+  renderWho();go('startups');
 }
 
 /* ---------- REPORTS ---------- */
@@ -1168,41 +1440,370 @@ function viewResources(m){
 }
 
 /* ---------- EXPORT ---------- */
-async function exportExcel(){
-  if(typeof XLSX==='undefined'){toast('Export library still loading — try again');return;}
-  const rows=S.startups.map((r,i)=>({
-    'Sl.No':i+1,'Date':r.date,'Source':r.source,'Startup Name':r.name,
-    'Founders':(r.founders||[]).map(f=>f.name).filter(Boolean).join('; '),
-    'Founder Emails':(r.founders||[]).map(f=>f.email).filter(Boolean).join('; '),
-    'Founder Phones':(r.founders||[]).map(f=>f.phone).filter(Boolean).join('; '),
-    'Founder Met':r.met,'Event':r.event,'Sector':r.sector,'Stage':r.stage,
-    'District':r.district,'KDEM Cluster':r.cluster,'DPIIT Recognised':r.dpiit,'DPIIT No':r.dpiitNo,
-    'SK Registered':r.skReg,'KITS Reg No':r.kitsNo,'Applied for SK Reg':r.appliedSK,'SK Application Date':r.appSKdate,'KITS Reply (Reg)':r.kitsConfReg,
-    'Fiscal Incentive Applied':r.fiApplied,'FI Application Date':r.fiDate,'Incentives Availed':(r.incentives||[]).join(', '),'KITS Reply (Incentive)':r.kitsConfInc,
-    'Planning to Apply':r.planning,'Application Stage':r.appStage,'Aware of Incentives':r.aware,
-    'Reason / Challenge':r.reason,'Support Required':r.support,'KDEM Action':r.action,'Notes':r.notes,
-    'Priority':r.priority,'Next Follow-up':r.fuDate,'Consent':r.consent,
-    'Action Needed from KITS':r.kitsActionNeeded,'KITS Status':r.kitsStatus,'KITS Response':r.kitsResponse,'KITS Action Taken':r.kitsActionTaken
-  }));
-  const k=kpis(S.startups);
-  const summary=[
-    ['KDEM Startup Karnataka — Tracker Export',''],['Generated',new Date().toLocaleString('en-IN')],['',''],
-    ['Total Startups Engaged',k.total],['DPIIT Recognised',k.dpiit],['Registered on Startup Karnataka',k.skYes],
-    ['Registration In Progress',k.skProg],['Not Yet Registered',k.skNo],['Fiscal Incentive Applied',k.fiYes],
-    ['Fiscal Incentive In Progress',k.fiProg],['Benefits Received / Disbursed',k.benefits],['Founders Met in Person',k.met],
-    ['KITS Verification In Progress',k.kitsProg],['KITS Reply Selected',k.kitsSel],['KITS Reply Rejected',k.kitsRej],['',''],['Cluster','Engaged']
+const EXP_CLUSTERS = ['Bengaluru Urban','H-D-B Cluster','Mangaluru Cluster','Mysuru Cluster','Shivamogga Cluster','Kalaburagi Cluster','Tumakuru Cluster'];
+const EXP_INCENTIVES = ['State GST','Internship','Patent','PF/ESI','R&D Grant','Cloud Storage','Quality Cert.','Marketing'];
+const EXP_FI_INPROGRESS = ['Documents in Preparation','Partially Submitted','Submitted - Awaiting Outcome','Under Department Review','Query Raised / Docs Pending'];
+
+/* The canonical column spec. Order 1-47 matches the KDEM master
+   tracker byte-for-byte except the four headers marked DISAMBIGUATED,
+   which the original repeated verbatim (two "If applied, mention
+   application date" and two "KITS team to confirm (Yes/No)") and
+   which must be unique for a reliable re-upload. */
+const EXP_COLS = [
+  { h:'Sl. No',                                      k:'_sl',        w:6,  auto:true },
+  { h:'Date Added',                                  k:'date',       w:12 },
+  { h:'Source of Contact',                           k:'source',     w:24, dv:'Source of Contact' },
+  { h:'Startup Name',                                k:'name',       w:31 },
+  { h:'Founder / Point of Contact',                  k:'_founders',  w:24 },
+  { h:'Founder Met in Person?',                      k:'met',        w:12, dv:'Yes / No' },
+  { h:'Event / Meeting Name',                        k:'event',      w:22 },
+  { h:'Email ID',                                    k:'email',      w:30 },
+  { h:'Contact Number',                              k:'phone',      w:15 },
+  { h:'Sector',                                      k:'sector',     w:20, dv:'Sector' },
+  { h:'Startup Stage',                               k:'stage',      w:18, dv:'Startup Stage' },
+  { h:'District / City',                             k:'district',   w:16 },
+  { h:'KDEM Cluster',                                k:'cluster',    w:20, dv:'KDEM Cluster' },
+  { h:'DPIIT Recognised?',                           k:'dpiit',      w:12, dv:'Yes / No' },
+  { h:'DPIIT Number',                                k:'dpiitNo',    w:18 },
+  { h:'Registered on Startup Karnataka (KITS)?',     k:'skReg',      w:16, dv:'SK Registration Status' },
+  { h:'KITS Registration Number',                    k:'kitsNo',     w:24 },
+  { h:'Applied for Startup Karnataka Registration ?',k:'appliedSK',  w:14, dv:'Yes / No' },
+  { h:'SK Application Date',                         k:'appSKdate',  w:14 },                                    // DISAMBIGUATED
+  { h:'KITS to Confirm — Registration',              k:'kitsConfReg',w:16, dv:'KITS Confirmation Tracker update' }, // DISAMBIGUATED
+  { h:'Fiscal Incentive Applied?',                   k:'fiApplied',  w:14, dv:'Incentive Applied' },
+  { h:'Fiscal Incentive Application Date',           k:'fiDate',     w:14 },                                    // DISAMBIGUATED
+  { h:'Incentive(s) Availed for (Auto)',             k:'_incentives',w:34, auto:true },
+  { h:'KITS to Confirm — Incentive',                 k:'kitsConfInc',w:16, dv:'KITS Confirmation Tracker update' }, // DISAMBIGUATED
+  { h:'Incentive(s) Planning to Apply',              k:'planning',   w:34 },
+  { h:'Application Stage',                           k:'appStage',   w:24, dv:'Application Stage' },
+  { h:'Aware of Incentives?',                        k:'aware',      w:12, dv:'Yes / No' },
+  { h:'Reason Not Applied / Challenge Faced',        k:'reason',     w:36 },
+  { h:'Support Required',                            k:'support',    w:26, dv:'Support Required' },
+  { h:'KDEM Action Taken',                           k:'action',     w:24, dv:'KDEM Action Taken' },
+  { h:'Action Notes / Remarks',                      k:'notes',      w:36 },
+  { h:'Priority',                                    k:'priority',   w:10, dv:'Priority' },
+  { h:'Follow-up Required?',                         k:'fuReq',      w:12, dv:'Yes / No' },
+  { h:'Next Follow-up Date',                         k:'fuDate',     w:14 },
+  { h:'Follow-up Status (Auto)',                     k:'_fuStatus',  w:16, auto:true },
+  { h:'Consent to Contact?',                         k:'consent',    w:12, dv:'Yes / No' },
+  { h:'Ecosystem Status (Auto)',                     k:'_eco',       w:24, auto:true },
+  { h:'Duplicate Check (Auto)',                      k:'_dup',       w:14, auto:true },
+  { h:'Last Updated',                                k:'_updated',   w:12, auto:true },
+  { h:'State GST',      k:'_tick0', w:12, dv:'Tick' },
+  { h:'Internship',     k:'_tick1', w:12, dv:'Tick' },
+  { h:'Patent',         k:'_tick2', w:12, dv:'Tick' },
+  { h:'PF/ESI',         k:'_tick3', w:12, dv:'Tick' },
+  { h:'R&D Grant',      k:'_tick4', w:12, dv:'Tick' },
+  { h:'Cloud Storage',  k:'_tick5', w:12, dv:'Tick' },
+  { h:'Quality Cert.',  k:'_tick6', w:12, dv:'Tick' },
+  { h:'Marketing',      k:'_tick7', w:12, dv:'Tick' },
+  { h:'Cohort',                            k:'cohort',          w:14 },
+  { h:'Sub-sector',                        k:'subSector',       w:20 },
+  { h:'Year Founded',                      k:'yearFounded',     w:12 },
+  { h:'Company Profile',                   k:'companyProfile',  w:50 },
+  { h:'Product / Service',                 k:'product',         w:40 },
+  { h:'Offering / Customer Focus',         k:'offering',        w:40 },
+  { h:'Technology Readiness Level (TRL)',  k:'trl',             w:16 },
+  { h:'Team Strength',                     k:'teamStrength',    w:12 },
+  { h:'Website',                           k:'website',         w:28 },
+  { h:'LinkedIn',                          k:'linkedin',        w:28 },
+  { h:'Action Needed from KITS',           k:'kitsActionNeeded',w:34 },
+  { h:'KITS Status',                       k:'kitsStatus',      w:20, dv:'KITS Status' },
+  { h:'KITS Response / Reply',             k:'kitsResponse',    w:34 },
+  { h:'KITS Action Taken',                 k:'kitsActionTaken', w:30 },
+  { h:'Remarks Log (read-only)',           k:'_remarks',        w:40, auto:true },
+  { h:'Startup ID',                        k:'id',              w:16, auto:true }
+];
+function expAllCols(){
+  const extra=(typeof CUSTOM_FIELDS!=='undefined'?CUSTOM_FIELDS:[]).map(function(cf){
+    return { h:cf.label, k:'custom:'+cf.key, w:24 };
+  });
+  if(!extra.length)return EXP_COLS;
+  return EXP_COLS.slice(0,EXP_COLS.length-1).concat(extra, [EXP_COLS[EXP_COLS.length-1]]);
+}
+
+const EXP_BANDS = [
+  { from:1,  to:9,  t:'IDENTIFICATION & SOURCE',                              c:'FF2E5FA3' },
+  { from:10, to:13, t:'PROFILE & CLUSTER',                                    c:'FFBF8F00' },
+  { from:14, to:20, t:'REGISTRATION STATUS (incl. KITS CONFIRMATION)',        c:'FF2F7D32' },
+  { from:21, to:28, t:'FISCAL EXP_INCENTIVES (incl. KITS CONFIRMATION)',          c:'FF7B3FA0' },
+  { from:29, to:36, t:'KDEM ENABLEMENT & FOLLOW-UP',                          c:'FFB3541E' },
+  { from:37, to:39, t:'AUTO STATUS',                                          c:'FF555555' },
+  { from:40, to:47, t:'EXP_INCENTIVES AVAILED — TICK ✓ ALL THAT APPLY',           c:'FF2F7D32' },
+  { from:48, to:57, t:'COMPANY DETAILS',                                      c:'FF4E6E81' },
+  { from:58, to:61, t:'KITS COORDINATION — FOR KITS TEAM TO FILL',            c:'FF007C91' },
+  { from:62, to:63, t:'SYSTEM — DO NOT EDIT',                                 c:'FF555555', last:true }
+];
+
+const EXP_DEFAULT_LISTS = {
+  'Source of Contact':['Registration Status Form','Fiscal Incentive Survey','Fiscal Incentive Tracker Form','Email Response','Phone Call / Tele-calling','WhatsApp','Event / Meeting','Walk-in / Office Visit','Referral','Other'],
+  'Sector':['AgriTech','AI / ML / DeepTech','BioTech / Life Sciences','CleanTech / Sustainability','D2C / Consumer','DefenceTech / Aerospace','EdTech','Electronics / ESDM','FinTech','FoodTech','GovTech','Gaming / AVGC','HealthTech / MedTech','IT / SaaS','Logistics / Mobility','Manufacturing','Retail / E-Commerce','SpaceTech','TravelTech','Other'],
+  'Startup Stage':['Ideation','Validation / MVP','Early Revenue','Growth / Scaling','Established (3+ years)'],
+  'KDEM Cluster':EXP_CLUSTERS,
+  'Yes / No':['Yes','No'],
+  'SK Registration Status':['Yes','In Progress','No','No - Not Aware'],
+  'Incentive Applied':['Yes','No','Planning to Apply','Not Eligible'],
+  'KITS Confirmation Tracker update':['In progess','Selected','Rejected'],
+  'KITS Status':['Pending with KITS','In Progress at KITS','Responded','Resolved','On Hold'],
+  'Application Stage':['Not Applied','Documents in Preparation','Partially Submitted','Submitted - Awaiting Outcome','Under Department Review','Query Raised / Docs Pending','Approved','Benefit Received / Disbursed','Rejected','Not Eligible'],
+  'Fiscal Incentives':['State GST Reimbursement','Internship Support','Patent Reimbursement','PF/ESI Reimbursement','R&D Grant Support','Cloud Storage Reimbursement','Quality Certification Cost Reimbursement','Marketing Cost Reimbursement','None'],
+  'KDEM Action Taken':['Called','Emailed','Called + Emailed','WhatsApp Follow-up','Met at Event','Guided on Documents','Registration Assistance Given','Escalated to KITS','Escalated to EIT-BT Dept','Issue Resolved','No Action Yet'],
+  'Support Required':['Registration Assistance','Document / Annexure Guidance','Affidavit / Notary Guidance','Application Status Update','Funding / Investor Access','Mentorship & Networking','Awareness of Government Schemes','Market Access','Regulatory / Compliance','Talent / Hiring','Infrastructure / Workspace','No Support Needed','Other'],
+  'Priority':['High','Medium','Low'],
+  'Tick':['✓']
+};
+
+function expColLetter(n){let s='';while(n>0){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=(n-m-1)/26;}return s;}
+function expTodayStr(){return new Date().toISOString().slice(0,10);}
+
+function expEcoStatus(r){
+  if(r.skReg==='Yes' && r.fiApplied==='Yes' && r.appStage==='Benefit Received / Disbursed') return 'Fully Enabled';
+  if(r.skReg==='Yes') return 'Registered - Incentive Pending';
+  if(r.skReg==='In Progress') return 'Registration In Progress';
+  return 'Not Registered';
+}
+function expFuStatus(r){
+  if(!r.fuDate) return '';
+  const t=expTodayStr();
+  if(r.fuDate < t) return 'OVERDUE';
+  const wk=new Date(Date.now()+7*864e5).toISOString().slice(0,10);
+  return r.fuDate <= wk ? 'DUE THIS WEEK' : 'SCHEDULED';
+}
+function expNormName(n){return (n||'').toLowerCase().replace(/[^a-z0-9]/g,'').replace(/(privatelimited|pvtltd|pvtlimited|privateltd|llp|ltd)$/,'');}
+
+function expCellValue(col, r, ctx){
+  switch(col.k){
+    case '_sl':        return ctx.index;
+    case '_founders':  return (r.founders||[]).map(f=>f.name).filter(Boolean).join('; ');
+    case '_incentives':return (r.incentives||[]).length ? r.incentives.join(', ') : 'None';
+    case '_fuStatus':  return expFuStatus(r);
+    case '_eco':       return expEcoStatus(r);
+    case '_dup':       return ctx.dupFlag;
+    case '_updated':   return (r.history&&r.history.length) ? String(r.history[r.history.length-1].at||'').slice(0,10) : '';
+    case '_remarks':   return (r.remarks||[]).map(x=>'['+String(x.at||'').slice(0,10)+'] '+(x.text||'')).join('\n');
+    case 'custom:':break;
+    default:
+      if(col.k.indexOf('custom:')===0){const kk=col.k.slice(7);return (r.custom&&r.custom[kk])||'';}
+      if(col.k.indexOf('_tick')===0){
+        const i=parseInt(col.k.slice(5),10);
+        return (r.incentives||[]).indexOf(EXP_INCENTIVES[i])>=0 ? '✓' : '';
+      }
+      const v=r[col.k];
+      return (v==null) ? '' : (Array.isArray(v) ? v.join(', ') : v);
+  }
+}
+
+/**
+ * Build the workbook.
+ * @param ExcelJS  the ExcelJS library (browser global or node require)
+ * @param rows     array of startup objects
+ * @param opts     { lists, dropdowns:boolean }
+ */
+function buildExportWorkbook(ExcelJS, rows, opts){
+  opts = opts || {};
+  const LISTS = Object.assign({}, EXP_DEFAULT_LISTS, opts.lists || {});
+  const withDropdowns = opts.dropdowns !== false;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'KDEM Startup Ecosystem Tracker';
+  wb.created = new Date();
+
+  /* ---------- Lists sheet (dropdown sources) ---------- */
+  const ls = wb.addWorksheet('Lists');
+  ls.getCell('A1').value = 'DROPDOWN LISTS — used by the Master Tracker. Edit here to change the allowed values.';
+  ls.getCell('A1').font = { name:'Arial', size:11, bold:true, color:{argb:'FFFFFFFF'} };
+  ls.getCell('A1').fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF1F3864'} };
+  const listRange = {};
+  Object.keys(LISTS).forEach((nm, i) => {
+    const c = i + 1, L = expColLetter(c), vals = LISTS[nm] || [];
+    const hc = ls.getCell(2, c);
+    hc.value = nm;
+    hc.font = { name:'Arial', size:10, bold:true };
+    hc.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FFD9E2F3'} };
+    vals.forEach((v, j) => { ls.getCell(3 + j, c).value = v; ls.getCell(3+j,c).font={name:'Arial',size:10}; });
+    ls.getColumn(c).width = Math.max(18, Math.min(42, nm.length + 6));
+    listRange[nm] = vals.length ? ("Lists!$" + L + "$3:$" + L + "$" + (2 + vals.length)) : null;
+  });
+
+  /* ---------- Master Tracker ---------- */
+  const ws = wb.addWorksheet('Master Tracker', {
+    views: [{ state:'frozen', xSplit:4, ySplit:5 }]
+  });
+  const ALLCOLS = expAllCols();
+  const NC = ALLCOLS.length, LAST = expColLetter(NC);
+
+  ws.mergeCells(1, 1, 1, NC);
+  ws.getCell('A1').value = 'KDEM  |  STARTUP KARNATAKA POLICY 2025-30  —  CONSOLIDATED ECOSYSTEM ENABLEMENT TRACKER';
+  ws.mergeCells(2, 1, 2, NC);
+  ws.getCell('A2').value = 'Karnataka Digital Economy Mission  ·  EIT-BT Department, GoK  ·  Monthly Report to KITS  ·  All sources consolidated: Forms, Email, Calls, Events';
+  ws.mergeCells(3, 1, 3, NC);
+  ws.getCell('A3').value = 'Grey columns are auto-calculated — do not type in them. Keep the "Startup ID" column untouched: it is how your edits are matched back when this file is re-uploaded.';
+  for (let c = 1; c <= NC; c++) {
+    ws.getCell(1,c).fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF1F3864'} };
+    ws.getCell(2,c).fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF2E5FA3'} };
+  }
+  ws.getCell('A1').font = { name:'Arial', size:16, bold:true, color:{argb:'FFFFFFFF'} };
+  ws.getCell('A1').alignment = { horizontal:'center', vertical:'middle' };
+  ws.getCell('A2').font = { name:'Arial', size:10, italic:true, color:{argb:'FFFFFFFF'} };
+  ws.getCell('A2').alignment = { horizontal:'center', vertical:'middle' };
+  ws.getCell('A3').font = { name:'Arial', size:9, bold:true, color:{argb:'FF9C0006'} };
+  ws.getRow(1).height = 29.25; ws.getRow(2).height = 18; ws.getRow(3).height = 15;
+  ws.getRow(4).height = 15.75; ws.getRow(5).height = 45.75;
+
+  EXP_BANDS.forEach(b => {
+    const to = b.last ? NC : b.to;
+    if (b.from > NC) return;
+    ws.mergeCells(4, b.from, 4, to);
+    const cell = ws.getCell(4, b.from);
+    cell.value = b.t;
+    cell.font = { name:'Arial', size:9, bold:true, color:{argb:'FFFFFFFF'} };
+    cell.alignment = { horizontal:'center', vertical:'middle' };
+    for (let c = b.from; c <= to; c++)
+      ws.getCell(4,c).fill = { type:'pattern', pattern:'solid', fgColor:{argb:b.c} };
+  });
+
+  const thin = { style:'thin', color:{argb:'FFBFBFBF'} };
+  const BORDER = { top:thin, left:thin, bottom:thin, right:thin };
+  ALLCOLS.forEach((col, i) => {
+    const c = i + 1;
+    const cell = ws.getCell(5, c);
+    cell.value = col.h;
+    cell.font = { name:'Arial', size:9, bold:true, color:{argb:'FFFFFFFF'} };
+    cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb: col.auto ? 'FF595959' : 'FF1F3864'} };
+    cell.alignment = { horizontal:'center', vertical:'middle', wrapText:true };
+    cell.border = BORDER;
+    ws.getColumn(c).width = col.w;
+  });
+
+  /* ---------- data rows ---------- */
+  const nameCount = {}, emailCount = {};
+  rows.forEach(r => {
+    const n = expNormName(r.name); if (n) nameCount[n] = (nameCount[n]||0) + 1;
+    const e = (r.email||'').toLowerCase(); if (e) emailCount[e] = (emailCount[e]||0) + 1;
+  });
+
+  rows.forEach((r, idx) => {
+    const rowNo = 6 + idx;
+    const dupFlag = ((nameCount[expNormName(r.name)]||0) > 1 || (r.email && (emailCount[r.email.toLowerCase()]||0) > 1)) ? 'DUPLICATE' : 'Unique';
+    const ctx = { index: idx + 1, dupFlag: dupFlag };
+    ALLCOLS.forEach((col, i) => {
+      const cell = ws.getCell(rowNo, i + 1);
+      cell.value = expCellValue(col, r, ctx);
+      cell.font = { name:'Arial', size:9 };
+      cell.alignment = { vertical:'top', wrapText: col.w >= 30 };
+      cell.border = BORDER;
+      if (col.auto) cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FFF2F2F2'} };
+    });
+  });
+
+  const lastRow = 5 + rows.length;
+  ws.autoFilter = { from:{ row:5, column:1 }, to:{ row: Math.max(lastRow,6), column: NC } };
+
+  /* ---------- dropdowns ---------- */
+  if (withDropdowns && rows.length) {
+    ALLCOLS.forEach((col, i) => {
+      if (!col.dv || !listRange[col.dv]) return;
+      const c = i + 1;
+      for (let rN = 6; rN <= lastRow; rN++) {
+        ws.getCell(rN, c).dataValidation = {
+          type:'list', allowBlank:true, formulae:[ listRange[col.dv] ],
+          showErrorMessage:true, errorStyle:'warning',
+          errorTitle:'Not in the list',
+          error:'Please pick one of the allowed values (see the Lists sheet).'
+        };
+      }
+    });
+  }
+
+  /* ---------- Dashboard ---------- */
+  const db = wb.addWorksheet('Dashboard');
+  const c = f => rows.filter(f).length;
+  const k = {
+    total: rows.length,
+    dpiit: c(r=>r.dpiit==='Yes'),
+    skYes: c(r=>r.skReg==='Yes'),
+    skProg: c(r=>r.skReg==='In Progress'),
+    notReg: c(r=>r.skReg==='No'||r.skReg==='No - Not Aware'),
+    fiYes: c(r=>r.fiApplied==='Yes'),
+    fiProg: c(r=>EXP_FI_INPROGRESS.indexOf(r.appStage)>=0),
+    benefits: c(r=>r.appStage==='Benefit Received / Disbursed'),
+    met: c(r=>r.met==='Yes'),
+    kitsPending: c(r=>r.kitsStatus==='Pending with KITS'||r.kitsStatus==='In Progress at KITS')
+  };
+  db.mergeCells('A1:C1');
+  db.getCell('A1').value = 'KDEM STARTUP ECOSYSTEM — DASHBOARD';
+  db.getCell('A1').font = { name:'Arial', size:14, bold:true, color:{argb:'FFFFFFFF'} };
+  db.getCell('A1').fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF1F3864'} };
+  db.getCell('A2').value = 'Generated'; db.getCell('B2').value = new Date().toISOString().slice(0,16).replace('T',' ');
+  const kpi = [
+    ['Total Startups Engaged', k.total], ['DPIIT Recognised', k.dpiit],
+    ['Registered on Startup Karnataka', k.skYes], ['Registration In Progress', k.skProg],
+    ['Not Yet Registered', k.notReg], ['Fiscal Incentive Applied', k.fiYes],
+    ['Fiscal Incentive In Progress', k.fiProg], ['Benefits Received / Disbursed', k.benefits],
+    ['Founders Met in Person', k.met], ['Pending with KITS', k.kitsPending]
   ];
-  CLUSTERS.forEach(cl=>summary.push([cl,S.startups.filter(r=>r.cluster===cl).length]));
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(summary),'Dashboard');
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Master Tracker');
-  const out=XLSX.write(wb,{bookType:'xlsx',type:'array'});
-  const fname=`KDEM_Startup_Tracker_${todayStr()}.xlsx`;
-  const dl=await safeUse('downloads');
-  if(dl&&dl.save){try{await dl.save({filename:fname,data:new Uint8Array(out)});toast('Excel ready');return;}catch(e){}}
-  // fallback: blob link (works outside artifact sandbox)
-  try{const blob=new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});const a=el('a',{href:URL.createObjectURL(blob),download:fname});document.body.append(a);a.click();a.remove();toast('Excel downloaded');}
-  catch(e){toast('Download not available in this view');}
+  kpi.forEach((p, i) => {
+    const rN = 4 + i;
+    db.getCell(rN,1).value = p[0]; db.getCell(rN,1).font = { name:'Arial', size:10 };
+    db.getCell(rN,2).value = p[1]; db.getCell(rN,2).font = { name:'Arial', size:11, bold:true };
+  });
+  db.getCell(15,1).value = 'CLUSTER'; db.getCell(15,2).value = 'ENGAGED';
+  db.getCell(15,3).value = 'SK REGISTERED'; db.getCell(15,4).value = 'INCENTIVE APPLIED';
+  [1,2,3,4].forEach(cc=>{ db.getCell(15,cc).font={name:'Arial',size:9,bold:true,color:{argb:'FFFFFFFF'}};
+    db.getCell(15,cc).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF2E5FA3'}}; });
+  EXP_CLUSTERS.forEach((cl, i) => {
+    const rN = 16 + i, sub = rows.filter(r=>r.cluster===cl);
+    db.getCell(rN,1).value = cl;
+    db.getCell(rN,2).value = sub.length;
+    db.getCell(rN,3).value = sub.filter(r=>r.skReg==='Yes').length;
+    db.getCell(rN,4).value = sub.filter(r=>r.fiApplied==='Yes').length;
+  });
+  db.getColumn(1).width = 34; db.getColumn(2).width = 14; db.getColumn(3).width = 16; db.getColumn(4).width = 20;
+
+  /* ---------- READ ME ---------- */
+  const rm = wb.addWorksheet('READ ME');
+  rm.getColumn(1).width = 3; rm.getColumn(2).width = 118;
+  rm.mergeCells('A1:B1');
+  rm.getCell('A1').value = 'HOW TO EDIT THIS FILE AND SEND IT BACK';
+  rm.getCell('A1').font = { name:'Arial', size:14, bold:true, color:{argb:'FFFFFFFF'} };
+  rm.getCell('A1').fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF1F3864'} };
+  [
+    '',
+    '1. Open the "Master Tracker" sheet. Each row is one startup. Row 5 holds the column headings.',
+    '2. Edit any white column. Use the dropdowns where they appear — the allowed values live on the "Lists" sheet.',
+    '3. Grey columns are calculated automatically. You do not need to fill them.',
+    '4. KITS team: your columns are the teal block near the right — "Action Needed from KITS", "KITS Status",',
+    '   "KITS Response / Reply" and "KITS Action Taken", plus the two "KITS to Confirm" columns.',
+    '5. DO NOT delete, move or edit the last column, "Startup ID". It is how each row is matched back to the',
+    '   right startup when the file is uploaded again. Rows you add at the bottom can leave Startup ID blank —',
+    '   they will be created as new startups (and checked for duplicates first).',
+    '6. Save the file, then in the tracker website go to "Import / Update", upload it, confirm the column',
+    '   matches and press Apply. Every change is written against the right startup and recorded in its history.',
+    '',
+    'Questions: Vikas Vishwakarma — KDEM Startup & Innovation.'
+  ].forEach((t, i) => {
+    const cell = rm.getCell(3 + i, 2);
+    cell.value = t;
+    cell.font = { name:'Arial', size:10, bold: /^\d\./.test(t) === false && t.indexOf('DO NOT') >= 0 };
+    cell.alignment = { wrapText:true, vertical:'top' };
+  });
+
+  return wb;
+}
+
+async function exportExcel(){
+  if(typeof ExcelJS==='undefined'){toast('Export library still loading — try again in a moment');return;}
+  try{
+    toast('Building Excel…');
+    const wb=buildExportWorkbook(ExcelJS,S.startups,{lists:LISTS});
+    const buf=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='KDEM_Startup_Tracker_'+todayStr()+'.xlsx';
+    document.body.appendChild(a);a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
+    toast('Excel downloaded — '+S.startups.length+' startups');
+  }catch(e){toast('Export failed — please try again');}
 }
 
 /* ---------- CAPABILITY BOOT ---------- */
@@ -1301,14 +1902,50 @@ window.__startApp=boot;
   const dbCap={
     collection:function(path){return {
       onSnapshot:function(cb,err){
+        let cache=[];
+        const emit=function(){
+          clearTimeout(deb);
+          deb=setTimeout(function(){
+            cb({empty:cache.length===0,docs:cache.map(function(r){return {id:r.id,data:function(){return r.data;}};})});
+          },40);
+        };
         const load=async function(){
           const {data,error}=await sb.from('startups').select('id,data').order('updated_at',{ascending:false}).limit(25000);
           if(error){if(err)err(mapErr(error));return;}
-          cb({empty:(data||[]).length===0,docs:(data||[]).map(function(r){return {id:r.id,data:function(){return r.data;}};})});
+          cache=(data||[]).map(function(r){return {id:r.id,data:r.data};});
+          emit();
         };
         load();
-        const ch=sb.channel('st-'+Math.random().toString(36).slice(2)).on('postgres_changes',{event:'*',schema:'public',table:'startups'},function(){clearTimeout(deb);deb=setTimeout(load,400);}).subscribe();
-        return function(){try{sb.removeChannel(ch);}catch(e){}};
+        // Apply each change in place instead of refetching every row — this is
+        // what makes other people's edits appear instantly without a reload.
+        const ch=sb.channel('st-'+Math.random().toString(36).slice(2))
+          .on('postgres_changes',{event:'*',schema:'public',table:'startups'},function(p){
+            try{
+              if(p.eventType==='DELETE'){
+                const id=p.old&&p.old.id; if(id)cache=cache.filter(function(r){return r.id!==id;});
+              }else if(p.new&&p.new.id){
+                const row={id:p.new.id,data:p.new.data};
+                const i=cache.findIndex(function(r){return r.id===row.id;});
+                if(i<0)cache.unshift(row); else cache[i]=row;
+              }
+              emit();
+            }catch(e){clearTimeout(deb);deb=setTimeout(load,400);}
+          })
+          .subscribe(function(status){ if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){setTimeout(load,2000);} });
+        // safety net: reconcile with the server every few minutes
+        const poll=setInterval(load,180000);
+        return function(){try{clearInterval(poll);sb.removeChannel(ch);}catch(e){}};
+      },
+      setMany:async function(list){
+        const SIZE=200;
+        for(let i=0;i<list.length;i+=SIZE){
+          const rows=list.slice(i,i+SIZE).map(function(r){
+            return {id:r.id,data:r,updated_at:new Date().toISOString(),updated_by:email};
+          });
+          const {error}=await sb.from('startups').upsert(rows);
+          if(error)throw mapErr(error);
+        }
+        return list.length;
       },
       doc:function(id){return docRef(id);}
     };},

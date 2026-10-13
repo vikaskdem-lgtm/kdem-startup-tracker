@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
   if (match) {
     // ---- UPDATE existing: fill empty fields, add founder, log remark ----
     const r = Object.assign(blankStartup(), match.data);
-    ['district','cluster','sector','stage','dpiit','dpiitNo','skReg','kitsNo','appliedSK','fiApplied',
+    ['district','cluster','sector','subSector','stage','dpiit','dpiitNo','skReg','kitsNo','appliedSK','fiApplied','website','linkedin','cohort','yearFounded','companyProfile','product','offering','trl','teamStrength','kitsActionNeeded','kitsStatus','kitsResponse','kitsActionTaken',
      'appStage','aware','reason','support','event','priority','consent','planning','met','notes']
       .forEach(k => { if (rec[k] != null && rec[k] !== '') r[k] = rec[k]; });
     if (rec.incentives && rec.incentives.length)

@@ -137,3 +137,86 @@ supabase/seed.sql       your 460 startups
 google-apps-script.gs   paste into each Google Form
 .env.example            the environment variables to set in Vercel
 ```
+
+---
+
+## Excel round-trip (download → edit → re-upload)
+
+**Export Excel** produces the full KDEM master-tracker workbook:
+
+| Sheet | What it is |
+|---|---|
+| Master Tracker | every startup, 63 columns, in the exact KDEM layout (title block, coloured section bands, headings on row 5, frozen panes, filters, dropdowns) |
+| Lists | the allowed dropdown values — edit here to change them |
+| Dashboard | KPI summary + cluster breakdown |
+| READ ME | instructions for whoever you send the file to |
+
+Columns 1–47 match the original KDEM master tracker exactly, except four headings
+that the original repeated word-for-word (two "If applied, mention application date"
+and two "KITS team to confirm (Yes/No)"). Those are now
+**SK Application Date / Fiscal Incentive Application Date** and
+**KITS to Confirm — Registration / KITS to Confirm — Incentive**, so each one can be
+matched back unambiguously. Columns 48–63 add Company Details, the KITS
+Coordination block, the Remarks Log and **Startup ID**.
+
+**How the round-trip works**
+1. Export Excel and send the file to KITS or your team.
+2. They edit it in Excel — dropdowns are built in, grey columns are calculated.
+3. Upload the file back under **Import / Update**.
+4. Each row is matched by **Startup ID** (exact), then DPIIT number, email, name.
+   Edits land on the right startup and are written into its change history.
+   Rows typed at the bottom with no Startup ID are added as new startups, after a
+   duplicate check.
+
+Never delete, move or retype the **Startup ID** column — it is what makes the
+matching exact.
+
+**Importing other files.** Any Excel or CSV still works: every sheet is read, the
+header row is found automatically even when it sits under a title block, and
+columns are matched by name. Tick columns (✓) set the incentives.
+
+
+---
+
+## What's new in this build
+
+- **Instant updates.** Every save is applied on screen immediately and pushed to
+  everyone else through Supabase realtime. Changes arrive row-by-row rather than by
+  refetching the whole table, so nothing needs a page refresh. A green **Live** dot
+  in the header shows the connection is active.
+- **Fast bulk import.** Large files are written in batches of 200 with a progress
+  bar, instead of one row at a time. A 1,000-row import takes seconds.
+- **Custom fields.** If an uploaded file has a column the tracker doesn't know,
+  pick **"Create as a new field in the tracker"** on the matching screen. It becomes
+  a real field — visible on every startup, editable in the form, included in the
+  Excel export, and matched automatically the next time that column appears.
+  Manage them later under **Dropdowns → Custom Fields**.
+- **Unmatched-column warning.** The preview tells you exactly which columns are
+  still unmatched before you apply anything, so no data is silently dropped.
+
+## Pushing changes from VS Code
+
+```bash
+# one-time, if you don't have the repo locally yet
+git clone https://github.com/vikaskdem-lgtm/kdem-startup-tracker.git
+cd kdem-startup-tracker
+
+# copy the new files in (replacing the old ones), then:
+git add -A
+git commit -m "Excel round-trip, instant updates, custom fields"
+git push origin main
+```
+
+Vercel redeploys automatically within about a minute of the push. If git asks for a
+password, use a GitHub **personal access token** (Settings → Developer settings →
+Personal access tokens) as the password, not your account password.
+
+**Keep the Vercel Root Directory setting as it is.** If the files live in a
+`kdem-app/` folder in the repo, Root Directory must stay `kdem-app`. If you put them
+at the repo root, clear that field.
+
+## Database
+
+No SQL changes are needed for this build. Every field — including custom fields —
+is stored inside the existing `data` JSONB column, so your schema and your existing
+startups are untouched.
