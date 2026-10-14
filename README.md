@@ -568,3 +568,135 @@ role and display-name resolution (each new admin is a real admin, nobody is
 mislabelled as Vikas, editors and viewers are correctly held back), and 15 for
 the endpoint guards (unset secret refuses, wrong secret refuses, truncated
 secret refuses, correct secret passes, unauthenticated email requests refused).
+
+---
+
+## Build 8 — duplicates, districts, Beyond Bengaluru, and a login fix
+
+### Login was broken for the four new accounts
+
+"Database error querying schema" on sign-in. Cause was mine: creating the
+accounts with direct SQL left four token columns (`confirmation_token`,
+`recovery_token`, `email_change`, `email_change_token_new`) as `NULL`, where
+the two working accounts had empty strings. Supabase Auth is written in Go and
+cannot read `NULL` into a string field, so every sign-in failed. Fixed in the
+database; passwords unchanged.
+
+### Why one duplicate group had 62 records
+
+Duplicates were being matched on DPIIT number, and hundreds of records have no
+DPIIT number but wrote something in the box. The live table contains `NA` ×27,
+`N/A` ×8, `No` ×8, `no` ×7, `NO` ×6, `na` ×5, `nill` ×3, `0` ×3, `-` ×3,
+`Na` ×3, `Not Registered` ×3, `Nil` ×2, `Nill` ×2. Every one of those was
+treated as a real identifier. The largest single placeholder bucket held **35
+records**, which then chained through shared buckets into the group of 62.
+
+A second cause: fuzzy "similar name" scoring linked *Green Energy Solutions*
+to *Green Energy Systems*, and because groups merge transitively, one weak
+link pulled whole chains of unrelated startups together.
+
+### What duplicate matching does now
+
+Three signals, exactly as asked: **startup name, email, phone**. An exact match
+on any one of them is a duplicate. Everything is compared after cleaning:
+
+- **Case and spacing ignored** — `BANGALORE`, `Bangalore` and `bangalore` are
+  one value; `ACME TECHNOLOGIES PVT LTD` matches `Acme Technologies Private
+  Limited`.
+- **Phone formatting ignored** — `+91 98765 43210` matches `9876543210`.
+- **Placeholders are not values** — `NA`, `N/A`, `Nil`, `Nill`, `No`, `None`,
+  `0`, `000`, `-`, `--`, `Not Registered`, `TBD`, `xxx`, `unknown` and blanks
+  never match anything, in any field.
+- **No fuzzy matching.** Similar-but-different names stay separate.
+- **DPIIT number is no longer used for grouping** — it was the direct cause of
+  the 62-record group. (It is still used for import matching, but only when it
+  is a real number: at least 5 characters and containing a digit.)
+
+On your current 883 records this gives **0 duplicate names, 5 duplicate emails,
+7 duplicate phones** — about a dozen small, genuine groups instead of one
+unusable pile.
+
+### Keep all now actually sticks
+
+"Keep all (not duplicates)" recorded a flag that the scan never checked, so
+dismissed groups came straight back. It now stores a signature of that exact
+set of records. The group never returns — but if one of those startups later
+matches a *different* record, that new pairing is still flagged.
+
+### Merge
+
+- **Merge all into primary** on groups of three or more, instead of clicking
+  through them one at a time.
+- **Make primary** to pick which record survives before merging.
+- A failed merge re-enables the button and says why, instead of sitting on
+  "Merging…" forever.
+- Merging now also carries across call status, website, LinkedIn, company
+  profile and the other profile fields, and recomputes the cluster.
+
+### Districts: one spelling each
+
+`Bengaluru Urban` 381, `Bengaluru` 118, `Bangalore` 30, `BENGALURU` 16,
+`BANGALORE` 2, `bengaluru` 2, `bangalore` 1, `Bengaluru urban` 1,
+`BENGALURU URBAN` 1, `Banglore` 1 — ten rows on the dashboard for one district.
+
+Every district now resolves to one canonical name, covering case, spelling,
+old names and typos: Mysore→Mysuru, Mangalore→Dakshina Kannada, Hubli and
+Hubballi→Dharwad, Belgaum→Belagavi, Gulbarga→Kalaburagi, Bijapur→Vijayapura,
+Shimoga→Shivamogga, Tumkur→Tumakuru, and so on. Free-text addresses are read
+too — *"52, 9th Main Rd, Banashankari Stage II Bengaluru, Karnataka 560070"*
+resolves to Bengaluru Urban, and taluk names like Anekal, Gokak and
+Ramanagaram map to their districts.
+
+Across the live table this turns **66 distinct district strings into 33 real
+districts**.
+
+**Bengaluru Rural stays separate** and counts as Beyond Bengaluru, matching the
+cluster mapping this app already used (Bengaluru Rural sits in the Tumakuru
+cluster). Places outside Karnataka are kept as written, not guessed at.
+
+### Bengaluru vs Beyond Bengaluru
+
+Two new tiles on the dashboard, a split card, and a **District Summary** table
+listing every district with its count, its share, and whether it is Bengaluru
+or Beyond Bengaluru. On the current data: **Bengaluru 567 · Beyond Bengaluru
+295**.
+
+### Uploads could overwrite the wrong startup
+
+The import matched incoming rows on DPIIT number *first*. A row whose DPIIT
+number was "NA" matched the first existing startup that also had "NA" — and
+updated it. With 27 records holding "NA", every upload risked silently
+overwriting unrelated startups.
+
+Matching now runs in order: Startup ID → real DPIIT number → email → phone →
+exact name → founder email or phone. Every key goes through the same cleaning,
+so a placeholder matches nothing and the row is correctly treated as new.
+Names and districts are canonicalised on import, and normalisation is
+idempotent — a download → edit → re-upload cycle does not drift.
+
+### New: Settings → Data Cleanup
+
+Records added before these rules existed still hold the old values. Settings
+now opens with a **Data Cleanup** card that shows exactly what will change
+(grouped, e.g. "118 × Bengaluru → Bengaluru Urban") and applies it on one
+click. It reuses the same tested code the app runs on every save, rather than a
+second copy of the logic in SQL that could drift out of step.
+
+Run it once after deploying.
+
+### Tests
+
+**256 automated tests, all passing**, up from 132. The 92 new duplicate tests
+and 30 cleanup tests run against the real values from the live database,
+including:
+
+- 60 startups all carrying placeholder DPIIT numbers produce **zero** groups
+- the three real signals still catch duplicates across case, Pvt/Ltd and +91
+- similar-but-different names are not merged
+- Keep all suppresses that exact group but not a new pairing
+- every Bengaluru spelling in the live table collapses to one district, and the
+  totals reconcile
+- Bengaluru Rural is never swallowed by Bengaluru Urban
+- an uploaded row with DPIIT "NA" matches nothing; a real DPIIT number matches
+- 22,000 rows scanned for duplicates in ~400 ms
+- no record appears in two groups, and no group of one
