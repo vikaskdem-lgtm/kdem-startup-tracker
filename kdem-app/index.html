@@ -331,6 +331,103 @@ function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');cl
 /* district -> cluster */
 const DKEY=[['hubbal','H-D-B Cluster'],['hubli','H-D-B Cluster'],['belagavi','H-D-B Cluster'],['belgaum','H-D-B Cluster'],['dharwad','H-D-B Cluster'],['gadag','H-D-B Cluster'],['haveri','H-D-B Cluster'],['bagalkot','H-D-B Cluster'],['mangal','Mangaluru Cluster'],['dakshina kannada','Mangaluru Cluster'],['udupi','Mangaluru Cluster'],['uttara kannada','Mangaluru Cluster'],['karwar','Mangaluru Cluster'],['kodagu','Mangaluru Cluster'],['madikeri','Mangaluru Cluster'],['puttur','Mangaluru Cluster'],['mysur','Mysuru Cluster'],['mysore','Mysuru Cluster'],['mandya','Mysuru Cluster'],['ramanagar','Mysuru Cluster'],['chamarajanagar','Mysuru Cluster'],['shivamogga','Shivamogga Cluster'],['shimoga','Shivamogga Cluster'],['davanagere','Shivamogga Cluster'],['davangere','Shivamogga Cluster'],['chikkamagalur','Shivamogga Cluster'],['chikmagalur','Shivamogga Cluster'],['hassan','Shivamogga Cluster'],['bidar','Kalaburagi Cluster'],['kalaburagi','Kalaburagi Cluster'],['gulbarga','Kalaburagi Cluster'],['koppal','Kalaburagi Cluster'],['raichur','Kalaburagi Cluster'],['yadgir','Kalaburagi Cluster'],['vijayanagara','Kalaburagi Cluster'],['vijayapura','Kalaburagi Cluster'],['bijapur','Kalaburagi Cluster'],['ballari','Kalaburagi Cluster'],['bellary','Kalaburagi Cluster'],['tumakuru','Tumakuru Cluster'],['tumkur','Tumakuru Cluster'],['chitradurga','Tumakuru Cluster'],['chikkaballapur','Tumakuru Cluster'],['bengaluru rural','Tumakuru Cluster'],['kolar','Tumakuru Cluster']];
 function toCluster(d){const s=(d||'').toLowerCase();for(const[k,v]of DKEY)if(s.includes(k))return v;return 'Bengaluru Urban';}
+/* ---------- VALUE CLEANING ----------
+   People type all sorts of things to mean "I don't have this": NA, N/A, Nil,
+   Nill, No, -, 0, "Not Registered". Treating those as real values is what put
+   62 unrelated startups into one duplicate group (they all had DPIIT = "NA").
+   Everything that compares or counts a value goes through here first. */
+const PLACEHOLDERS=new Set(['','-','--','---','.','..','0','00','000','na','n/a','n.a','n.a.','nil','nill','nills','null','none','no','nope','not registered','not applicable','not available','notregistered','notapplicable','notavailable','tbd','tba','xx','xxx','xxxx','xxxxx','nan','undefined','unknown','blank','pending','yet to register','yettoregister','no dpiit','nodpiit','not yet','notyet','ni','n a']);
+function isBlankish(v){
+  if(v==null)return true;
+  const s=String(v).trim().toLowerCase().replace(/\s+/g,' ');
+  if(!s)return true;
+  if(PLACEHOLDERS.has(s))return true;
+  if(PLACEHOLDERS.has(s.replace(/[^a-z0-9]/g,'')))return true;
+  if(/^[-_.\/\\|, ]+$/.test(s))return true;   // only punctuation
+  if(/^0+$/.test(s))return true;              // 0, 00, 000...
+  return false;
+}
+function clean(v){return isBlankish(v)?'':String(v).trim().replace(/\s+/g,' ');}
+
+/* ---------- DISTRICT CANONICALISATION ----------
+   "Bangalore", "BENGALURU", "Bengaluru" and "Bengaluru Urban" are one place.
+   Bengaluru RURAL is a different district and must stay separate, so the
+   rural rules are listed first and win. */
+const DIST_ALIAS=[
+  ['Bengaluru Rural',  ['bengaluru rural','bangalore rural','bengalooru rural','blr rural','rural bengaluru','rural bangalore','bengaluru r','devanahalli','doddaballapur','hoskote','nelamangala']],
+  ['Bengaluru Urban',  ['bengaluru urban','bangalore urban','bengaluru','bangalore','bengalooru','bengaluru city','bangalore city','blr','bmp','bbmp','banglore','bangaluru','bengalure','bengalore','benguluru','bengalaru','bengaluru karanataka','bengalooru urban','bengaluru','banaglore','bangalore south','bangalore north','bangalore east','bangalore central','urban bengaluru','bengaluru u','electronic city','whitefield','koramangala','jayanagar','yelahanka','marathahalli','hebbal','indiranagar','rajajinagar','basavanagudi','malleshwaram','banashankari','btm layout','hsr layout','jp nagar','kr puram','peenya','bommanahalli','anekal']],
+  ['Dakshina Kannada', ['dakshina kannada','dakshin kannada','d k','dk','south canara','south kanara','mangaluru','mangalore','mangalur','manglore','puttur','bantwal','sullia','moodbidri']],
+  ['Uttara Kannada',   ['uttara kannada','uttar kannada','north canara','north kanara','karwar','sirsi','honnavar','bhatkal','dandeli']],
+  ['Dharwad',          ['dharwad','dharwar','hubballi','hubli','hubli dharwad','hubballi dharwad','hubli-dharwad','h d','hdb','navalgund']],
+  ['Belagavi',         ['belagavi','belgaum','belagaum','belgavi','chikkodi','gokak','athani','bailhongal']],
+  ['Kalaburagi',       ['kalaburagi','gulbarga','kalburgi','kalaburgi','gulberga','sedam','aland','chittapur']],
+  ['Vijayapura',       ['vijayapura','bijapur','vijaypur','vijayapur','bijapura','indi','sindagi']],
+  ['Ballari',          ['ballari','bellary','bellari','balari','sandur','siruguppa']],
+  ['Vijayanagara',     ['vijayanagara','vijaynagara','hosapete','hospet','hampi','kudligi']],
+  ['Shivamogga',       ['shivamogga','shimoga','shivmoga','shivamoga','sagara','bhadravathi','sagar','thirthahalli']],
+  ['Tumakuru',         ['tumakuru','tumkur','thumkur','tumakur','tiptur','sira','madhugiri']],
+  ['Chikkamagaluru',   ['chikkamagaluru','chikmagalur','chickmagalur','chikamagalur','chikkamagalur','kadur','tarikere','mudigere']],
+  ['Chamarajanagara',  ['chamarajanagara','chamarajanagar','chamrajnagar','chamarajnagar','kollegal','gundlupet']],
+  ['Davanagere',       ['davanagere','davangere','davanagre','davengere','harihar','channagiri']],
+  ['Chikkaballapura',  ['chikkaballapura','chikkaballapur','chikballapur','chickballapur','chintamani','gauribidanur','sidlaghatta']],
+  ['Ramanagara',       ['ramanagara','ramanagar','ramanagaram','ramnagar','ramanagara district','channapatna','magadi','kanakapura','bidadi','harohalli']],
+  ['Yadgir',           ['yadgir','yadagiri','yadgiri','shahapur','surpur']],
+  ['Bagalkote',        ['bagalkote','bagalkot','bagalakote','jamkhandi','mudhol','badami']],
+  ['Mysuru',           ['mysuru','mysore','maisuru','mysuru city','nanjangud','hunsur','t narsipur']],
+  ['Mandya',           ['mandya','maddur','malavalli','srirangapatna','pandavapura','nagamangala']],
+  ['Hassan',           ['hassan','hasan','arsikere','channarayapatna','sakleshpur','belur']],
+  ['Kodagu',           ['kodagu','coorg','madikeri','virajpet','somwarpet','kushalnagar']],
+  ['Udupi',            ['udupi','udipi','kundapura','karkala','brahmavar']],
+  ['Haveri',           ['haveri','haveri district','ranebennur','byadgi','hirekerur']],
+  ['Gadag',            ['gadag','gadaga','gadag betageri','ron','nargund']],
+  ['Koppal',           ['koppal','koppala','gangavathi','yelburga','kushtagi']],
+  ['Raichur',          ['raichur','raichuru','rachur','sindhanur','manvi','devadurga']],
+  ['Bidar',            ['bidar','bidhar','basavakalyan','humnabad','bhalki']],
+  ['Kolar',            ['kolar','kolara','kgf','kolar gold fields','bangarpet','malur','mulbagal']],
+  ['Chitradurga',      ['chitradurga','chitradurg','chitraradurga','hiriyur','challakere','hosadurga']],
+];
+const DIST_EXACT=(function(){const m=new Map();DIST_ALIAS.forEach(function(p){p[1].forEach(function(a){if(!m.has(a))m.set(a,p[0]);});});return m;})();
+function distKey(d){return String(d==null?'':d).toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\b(district|dist|taluk|taluka|tq|state|karnataka|india)\b/g,' ').replace(/\s+/g,' ').trim();}
+function canonDistrict(d){
+  const raw=clean(d);
+  if(!raw)return '';
+  const s=distKey(raw);
+  if(!s)return '';
+  const exact=DIST_EXACT.get(s);
+  if(exact)return exact;
+  // word-boundary match, in table order so "bengaluru rural" beats "bengaluru"
+  for(let i=0;i<DIST_ALIAS.length;i++){
+    const canon=DIST_ALIAS[i][0], alts=DIST_ALIAS[i][1];
+    for(let j=0;j<alts.length;j++){
+      const a=alts[j];
+      if(s===a)return canon;
+      if(new RegExp('(^| )'+a.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'( |$)').test(s))return canon;
+    }
+  }
+  // unknown district: Title Case it so "SOMEPLACE" and "someplace" agree
+  return raw.toLowerCase().replace(/\b[a-z]/g,function(c){return c.toUpperCase();});
+}
+/* KDEM counts Bengaluru Urban as "Bengaluru"; everything else in the state,
+   Bengaluru Rural included, is "Beyond Bengaluru" — same split the cluster
+   mapping already uses (Bengaluru Rural sits in the Tumakuru cluster). */
+function isBengaluru(d){return canonDistrict(d)==='Bengaluru Urban';}
+function bengaluruSplit(rows){
+  let beng=0,beyond=0,unknown=0;
+  (rows||[]).forEach(function(r){
+    const c=canonDistrict(r.district);
+    if(!c)unknown++; else if(c==='Bengaluru Urban')beng++; else beyond++;
+  });
+  return {bengaluru:beng,beyond:beyond,unknown:unknown,districts:districtCounts(rows)};
+}
+function districtCounts(rows){
+  const m=new Map();
+  (rows||[]).forEach(function(r){
+    const c=canonDistrict(r.district);
+    if(!c)return;
+    m.set(c,(m.get(c)||0)+1);
+  });
+  return Array.from(m.entries()).sort(function(a,b){return b[1]-a[1]||a[0].localeCompare(b[0]);});
+}
 function norm(n){return (n||'').toLowerCase().replace(/[^a-z0-9]/g,'').replace(/(privatelimited|pvtltd|pvtlimited|privateltd|llp|ltd)$/,'');}
 /* name token set for fuzzy duplicate detection */
 const STOP=new Set(['private','limited','pvt','ltd','llp','the','and','technologies','technology','solutions','solution','services','india','labs','ventures','innovations','innovation','enterprises','company','co','systems']);
@@ -415,11 +512,14 @@ function kpis(rows){
     kitsRej:c(r=>r.kitsConfReg==='Rejected'||r.kitsConfInc==='Rejected'),
     called:c(r=>CALL_DONE.includes(r.callStatus||'')),
     notCalled:c(r=>!CALL_DONE.includes(r.callStatus||'')),
+    bengaluru:c(r=>isBengaluru(r.district)),
+    beyond:c(r=>{const d=canonDistrict(r.district);return !!d&&d!=='Bengaluru Urban';}),
+    noDistrict:c(r=>!canonDistrict(r.district)),
   };
 }
 
 /* ---------- NAV ---------- */
-const NAV=[['dashboard','Dashboard','◧'],['startups','All Startups','▤'],['add','Add Startup','＋'],['import','Import / Update','⇪'],['duplicates','Duplicates','⧉'],['reports','Reports','▦'],['audit','Activity Log','◴'],['settings','Dropdowns','⚙'],['resources','Resources','🔗']];
+const NAV=[['dashboard','Dashboard','◧'],['startups','All Startups','▤'],['add','Add Startup','＋'],['import','Import / Update','⇪'],['duplicates','Duplicates','⧉'],['reports','Reports','▦'],['audit','Activity Log','◴'],['settings','Settings & Data','⚙'],['resources','Resources','🔗']];
 function renderNav(){
   const n=$('#side');n.innerHTML='';
   n.append(el('div',{class:'seg'},'Workspace'));
@@ -473,6 +573,8 @@ function viewDashboard(m){
     ['Fiscal Incentive Applied',k.fiYes,pc(k.fiYes,t),'g'],
     ['Fiscal Incentive In Progress',k.fiProg,pc(k.fiProg,t),'w'],
     ['Benefits Received / Disbursed',k.benefits,pc(k.benefits,t),'g'],
+    ['Bengaluru',k.bengaluru,pc(k.bengaluru,t),'i'],
+    ['Beyond Bengaluru',k.beyond,pc(k.beyond,t),'g'],
     ['Founders Met in Person',k.met,pc(k.met,t),'i'],
     ['Startups Called by KDEM',k.called,pc(k.called,t),'g'],
     ['Still to Call',k.notCalled,pc(k.notCalled,t),'b'],
@@ -543,11 +645,61 @@ function dashExtra(m){
   g.append(breakdownCard('KDEM Calling Progress','Tap All Startups to work the list',
     CALL_STATUS.map(cs=>[cs,S.startups.filter(r=>(r.callStatus||'Not Called')===cs).length]).filter(p=>p[1])));
   g.append(breakdownCard('Source of Contact','Where startups came from',countBy(S.startups,'source')));
-  g.append(breakdownCard('District / City','Top locations',countBy(S.startups,'district').filter(p=>p[0]!=='—'),12));
+  g.append(breakdownCard('Bengaluru vs Beyond Bengaluru','Bengaluru Rural counts as Beyond Bengaluru',
+    (function(){
+      const sp=bengaluruSplit(S.startups);
+      const out=[['Bengaluru',sp.bengaluru],['Beyond Bengaluru',sp.beyond]];
+      if(sp.unknown)out.push(['District not recorded',sp.unknown]);
+      return out;
+    })()));
+  g.append(breakdownCard('District / City','All districts, spellings merged',districtCounts(S.startups),40));
   m.append(g);
+  m.append(beyondTable());
   // day-by-day cumulative growth
   const card=el('div',{class:'card',style:'margin-top:14px'},el('div',{class:'ch'},el('h3',{},'Day-by-Day Growth'),el('span',{class:'note'},'Cumulative startups engaged over time')));
   const cb=el('div',{class:'cb'});cb.append(trendSvg());card.append(cb);m.append(card);
+}
+/* Every district, with the Bengaluru / Beyond Bengaluru totals spelled out.
+   Spelling and case variants are merged first, so "Bangalore", "BENGALURU"
+   and "Bengaluru Urban" are one row, not four. */
+function beyondTable(){
+  const sp=bengaluruSplit(S.startups);
+  const total=(S.startups||[]).length;
+  const card=el('div',{class:'card',style:'margin-top:14px'},
+    el('div',{class:'ch'},el('h3',{},'District Summary'),
+      el('span',{class:'note'},sp.districts.length+' districts · '+total+' startups')));
+  const cb=el('div',{class:'cb'});
+
+  const head=el('div',{style:'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px'});
+  const chip=function(lab,val,cls){
+    return el('div',{class:'kpi '+(cls||''),style:'flex:1;min-width:150px'},
+      el('div',{class:'lab'},lab),el('div',{class:'val'},String(val)),
+      el('div',{class:'sub'},total?Math.round(val*100/total)+'% of total':''));
+  };
+  head.append(chip('Bengaluru',sp.bengaluru,'i'));
+  head.append(chip('Beyond Bengaluru',sp.beyond,'g'));
+  if(sp.unknown)head.append(chip('District not recorded',sp.unknown,'b'));
+  cb.append(head);
+
+  const tbl=el('table',{class:'tbl'});
+  const th=el('tr',{});
+  ['#','District','Startups','% of total','Group'].forEach(function(x){th.append(el('th',{},x));});
+  tbl.append(el('thead',{},th));
+  const tb=el('tbody',{});
+  sp.districts.forEach(function(p,i){
+    const isB=p[0]==='Bengaluru Urban';
+    tb.append(el('tr',{},
+      el('td',{},String(i+1)),
+      el('td',{},el('b',{},p[0])),
+      el('td',{},String(p[1])),
+      el('td',{},total?Math.round(p[1]*100/total)+'%':'—'),
+      el('td',{},el('span',{class:'chip '+(isB?'info':'good')},isB?'Bengaluru':'Beyond Bengaluru'))));
+  });
+  if(!sp.districts.length)tb.append(el('tr',{},el('td',{colspan:'5'},'No districts recorded yet.')));
+  tbl.append(tb);
+  cb.append(el('div',{class:'tablewrap'},tbl));
+  card.append(cb);
+  return card;
 }
 function trendSvg(){
   const byDate={};S.startups.forEach(r=>{const d=(r.date||'').slice(0,10);if(/^\d{4}-\d{2}-\d{2}$/.test(d))byDate[d]=(byDate[d]||0)+1;});
@@ -576,66 +728,116 @@ function trendSvg(){
   [0,Math.floor(pts.length/2),pts.length-1].forEach(i=>{const tx=mk('text',{x:x(i),y:H-12,'text-anchor':'middle','font-size':10.5,fill:'var(--muted)','font-family':'var(--mono)'});tx.textContent=pts[i].d.slice(5);svg.append(tx);});
   wrap.append(svg);return wrap;
 }
-/* ---------- DUPLICATES ---------- */
-function simSets(A,B){if(!A.size||!B.size)return 0;let i=0;A.forEach(t=>{if(B.has(t))i++;});return i/(A.size+B.size-i);}
-/* Group duplicates without comparing every pair: bucket records by the
-   things that make them duplicates, and only run the fuzzy name check
-   inside small buckets. Near-linear instead of n-squared. */
+/* ---------- DUPLICATES ----------
+   Three signals only, as agreed: startup name, email address, phone number.
+   A match on ANY one of them makes a duplicate. Everything is compared after
+   cleaning, so "BANGALORE" and "bangalore", or "ABC Pvt Ltd" and "ABC Private
+   Limited", are the same value — and placeholders like NA / Nil / 0 are not
+   values at all, so they never match anything.
+
+   Deliberately NOT used any more:
+     - DPIIT number  (hundreds of records share "NA"/"Nil"/"No")
+     - fuzzy "similar name" scoring (it chained unrelated startups together) */
+function dupName(n){
+  const c=clean(n); if(!c)return '';
+  const k=norm(c);                       // lowercase, strip punctuation + Pvt/Ltd/LLP
+  if(k.length<3)return '';
+  if(isBlankish(k))return '';
+  return k;
+}
+function dupEmail(e){
+  const c=clean(e).toLowerCase();
+  if(!c||c.indexOf('@')<1)return '';
+  const parts=c.split('@');
+  if(parts.length!==2||!parts[1]||parts[1].indexOf('.')<1)return '';
+  if(isBlankish(parts[0]))return '';
+  return c;
+}
+function dupPhone(p){
+  const c=clean(p); if(!c)return '';
+  const d=c.replace(/\D/g,'');
+  if(d.length<10)return '';
+  const last=d.slice(-10);
+  if(/^(\d)\1{9}$/.test(last))return '';          // 0000000000, 9999999999
+  if(last==='1234567890')return '';
+  return last;
+}
+function dupKeys(r){
+  const names=new Set(),emails=new Set(),phones=new Set();
+  const nm=dupName(r.name); if(nm)names.add(nm);
+  const fs=r.founders||[];
+  [r.email].concat(fs.map(function(f){return f&&f.email;})).forEach(function(e){
+    const v=dupEmail(e); if(v)emails.add(v);});
+  [r.phone].concat(fs.map(function(f){return f&&f.phone;})).forEach(function(p){
+    const v=dupPhone(p); if(v)phones.add(v);});
+  return {names:names,emails:emails,phones:phones};
+}
+/* Signature of a reviewed group, so "Keep all" actually sticks. */
+function groupSig(list){return list.map(function(x){return x.id;}).sort().join('|');}
+function dismissedSigs(r){
+  const v=r.dupOk;
+  if(!v)return [];
+  if(Array.isArray(v))return v;
+  return [];               // legacy boolean true -> no longer suppresses anything
+}
 function findDupGroups(){
-  const rows=S.startups;
-  const meta=rows.map(r=>{
-    const emails=new Set();
-    [r.email].concat((r.founders||[]).map(f=>f.email)).forEach(e=>{if(e)emails.add(String(e).toLowerCase());});
-    const phones=new Set();
-    [r.phone].concat((r.founders||[]).map(f=>f.phone)).forEach(p=>{
-      if(!p)return;const d=String(p).replace(/\D/g,'').slice(-10);if(d.length===10)phones.add(d);});
-    return {r:r,nm:norm(r.name),dn:(r.dpiitNo||'').replace(/\s/g,'').toLowerCase(),
-            emails:emails,phones:phones,tk:tokens(r.name)};
-  });
-  const n=meta.length;
-  const parent=new Array(n);for(let i=0;i<n;i++)parent[i]=i;
-  const find=a=>{while(parent[a]!==a){parent[a]=parent[parent[a]];a=parent[a];}return a;};
-  const why={};
-  const link=(a,b,reason)=>{
-    const ra=find(a),rb=find(b);if(ra===rb)return;
+  const rows=S.startups||[];
+  const n=rows.length;
+  const meta=new Array(n);
+  for(let i=0;i<n;i++)meta[i]={r:rows[i],k:dupKeys(rows[i])};
+
+  const parent=new Array(n); for(let i=0;i<n;i++)parent[i]=i;
+  const find=function(a){while(parent[a]!==a){parent[a]=parent[parent[a]];a=parent[a];}return a;};
+  const reasons={};                                   // id -> Set of reasons
+  const addReason=function(id,why){(reasons[id]||(reasons[id]=new Set())).add(why);};
+  const link=function(a,b,why){
+    addReason(meta[a].r.id,why); addReason(meta[b].r.id,why);
+    const ra=find(a),rb=find(b); if(ra===rb)return;
     parent[rb]=ra;
-    if(!why[meta[b].r.id])why[meta[b].r.id]=reason;
   };
-  const bucket=(keysOf,reason)=>{
+  const bucket=function(pick,why){
     const map=new Map();
     for(let i=0;i<n;i++){
-      keysOf(meta[i]).forEach(k=>{
-        if(!k)return;const arr=map.get(k);
-        if(arr)arr.push(i);else map.set(k,[i]);
+      pick(meta[i].k).forEach(function(key){
+        if(!key)return;
+        const arr=map.get(key); if(arr)arr.push(i); else map.set(key,[i]);
       });
     }
-    map.forEach(list=>{for(let j=1;j<list.length;j++)link(list[0],list[j],reason);});
+    map.forEach(function(list){
+      if(list.length<2)return;
+      for(let j=1;j<list.length;j++)link(list[0],list[j],why);
+    });
   };
-  bucket(m=>[m.dn],'Same DPIIT no.');
-  bucket(m=>[m.nm],'Same name');
-  bucket(m=>Array.from(m.emails),'Shared email');
-  bucket(m=>Array.from(m.phones),'Shared phone');
-  // fuzzy pass, limited to records that share an uncommon word
-  const tokMap=new Map();
-  for(let i=0;i<n;i++)meta[i].tk.forEach(t=>{const a=tokMap.get(t);if(a){a.push(i);}else tokMap.set(t,[i]);});
-  tokMap.forEach(list=>{
-    if(list.length<2||list.length>150)return;        // skip words shared by everyone
-    for(let x=0;x<list.length;x++)for(let y=x+1;y<list.length;y++){
-      const i=list[x],j=list[y];
-      if(meta[i].nm===meta[j].nm)continue;
-      if(find(i)===find(j))continue;
-      const s=simSets(meta[i].tk,meta[j].tk);
-      if(s>=0.6)link(i,j,'Similar name ('+Math.round(s*100)+'%)');
-    }
-  });
+  bucket(function(k){return k.names;}, 'Same name');
+  bucket(function(k){return k.emails;},'Same email');
+  bucket(function(k){return k.phones;},'Same phone');
+
   const byRoot=new Map();
-  for(let i=0;i<n;i++){const r=find(i);const a=byRoot.get(r);if(a)a.push(meta[i].r);else byRoot.set(r,[meta[i].r]);}
+  for(let i=0;i<n;i++){
+    const root=find(i); const a=byRoot.get(root);
+    if(a)a.push(meta[i].r); else byRoot.set(root,[meta[i].r]);
+  }
   const groups=[];
-  byRoot.forEach(list=>{
+  byRoot.forEach(function(list){
     if(list.length<2)return;
-    list.forEach((x,idx)=>{x._why=idx===0?'':(why[x.id]||'Similar record');});
+    const sig=groupSig(list);
+    // "Keep all" on this exact set of records hides it for good
+    const allDismissed=list.every(function(x){return dismissedSigs(x).indexOf(sig)>=0;});
+    if(allDismissed)return;
+    list.forEach(function(x,idx){
+      const rs=reasons[x.id];
+      x._why=idx===0?'':(rs?Array.from(rs).join(' + '):'Matched');
+    });
+    list._sig=sig;
+    list._why=(function(){
+      const all=new Set();
+      list.forEach(function(x){const rs=reasons[x.id];if(rs)rs.forEach(function(w){all.add(w);});});
+      return Array.from(all).join(' + ')||'Matched';
+    })();
     groups.push(list);
   });
+  // biggest groups first so the worst offenders are dealt with first
+  groups.sort(function(a,b){return b.length-a.length;});
   return groups;
 }
 function dupGroups(force){
@@ -644,86 +846,274 @@ function dupGroups(force){
 }
 
 function viewDuplicates(m){
-  m.append(el('div',{class:'page-h'},el('div',{},el('h1',{},'Duplicate Review'),el('p',{},'Suspected duplicates found by DPIIT number, email, phone, exact name and similar name — even when the email differs'))));
+  m.append(el('div',{class:'page-h'},el('div',{},el('h1',{},'Duplicate Review'),
+    el('p',{},'Matched on startup name, email or phone — exact matches only, after ignoring NA / Nil / 0 and upper-lower case differences'))));
   const t0=Date.now();
   const groups=dupGroups();
   const scanMs=Date.now()-t0;
+  const dupRows=groups.reduce(function(a,g){return a+g.length;},0);
   m.append(el('div',{class:'toolbar'},
-    el('button',{class:'btn sec sm',onclick:()=>{S._dupGroups=null;renderMain();}},'Rescan'),
-    el('span',{class:'count'},'checked '+S.startups.length+' startups'+(scanMs?(' in '+scanMs+' ms'):''))));
-  if(!groups.length){m.append(el('div',{class:'banner good'},'No suspected duplicates found. Every startup looks unique.'));return;}
-  m.append(el('div',{class:'banner warn'},groups.length+' possible duplicate group'+(groups.length>1?'s':'')+' found. Review each — Merge to combine into one record (founders and details kept), or Keep both if they are genuinely different.'));
-  groups.forEach((grp,gi)=>{
+    el('button',{class:'btn sec sm',onclick:function(){S._dupGroups=null;renderMain();}},'Rescan'),
+    el('span',{class:'count'},'checked '+(S.startups||[]).length+' startups'+(scanMs?(' in '+scanMs+' ms'):''))));
+  if(!groups.length){m.append(el('div',{class:'banner good'},'No duplicates found. Every startup has a unique name, email and phone.'));return;}
+  m.append(el('div',{class:'banner warn'},
+    groups.length+' duplicate group'+(groups.length>1?'s':'')+' covering '+dupRows+' records. '+
+    'Merge combines a record into the primary one (founders, remarks and filled-in details are kept). '+
+    'Keep all marks the group as genuinely different — it will not come back.'));
+  groups.forEach(function(grp,gi){
     const card=el('div',{class:'card',style:'margin-top:12px'});
-    card.append(el('div',{class:'ch'},el('h3',{},'Group '+(gi+1)+' · '+grp.length+' records'),el('span',{class:'note'},grp[1]&&grp[1]._why?('Matched: '+grp[1]._why):'')));
+    card.append(el('div',{class:'ch'},
+      el('h3',{},'Group '+(gi+1)+' · '+grp.length+' records'),
+      el('span',{class:'note'},'Matched: '+(grp._why||'—'))));
     const cb=el('div',{class:'cb'});
-    grp.forEach((r,ri)=>{
+    grp.forEach(function(r,ri){
       const row=el('div',{class:'duprow'});
       row.append(el('div',{class:'dupmain'},
-        el('div',{},el('b',{},r.name||'(unnamed)'),ri>0&&r._why?el('span',{class:'chip warn',style:'margin-left:8px'},r._why):el('span',{class:'chip info',style:'margin-left:8px'},'Primary')),
+        el('div',{},el('b',{},r.name||'(unnamed)'),
+          ri===0?el('span',{class:'chip info',style:'margin-left:8px'},'Primary')
+                :el('span',{class:'chip warn',style:'margin-left:8px'},r._why||'Matched')),
         el('div',{class:'sub',style:'color:var(--faint);font-size:11.5px;margin-top:2px'},
-          [r.cluster,r.email||((r.founders||[])[0]||{}).email,r.phone,r.dpiitNo].filter(Boolean).join(' · ')||'no contact')));
+          [canonDistrict(r.district)||r.cluster,
+           clean(r.email)||clean(((r.founders||[])[0]||{}).email),
+           clean(r.phone),
+           clean(r.dpiitNo)].filter(Boolean).join(' · ')||'no contact details')));
       const acts=el('div',{style:'display:flex;gap:6px;flex-wrap:wrap'});
-      acts.append(el('button',{class:'btn sec sm',onclick:()=>openDetail(r.id)},'View'));
+      acts.append(el('button',{class:'btn sec sm',onclick:function(){openDetail(r.id);}},'View'));
       if(S.canWrite&&ri>0){
+        const pb=el('button',{class:'btn sec sm'},'Make primary');
+        pb.addEventListener('click',function(){
+          const i=grp.indexOf(r); if(i>0){grp.splice(i,1);grp.unshift(r);}
+          renderMain();
+        });
+        acts.append(pb);
         const mb=el('button',{class:'btn sm'},'Merge → primary');
-        mb.addEventListener('click',()=>mergeInto(grp[0].id,r.id,mb));
+        mb.addEventListener('click',function(){mergeInto(grp[0].id,r.id,mb);});
         acts.append(mb);
       }
       row.append(acts);cb.append(row);
     });
-    if(S.canWrite)cb.append(el('div',{style:'margin-top:10px;display:flex;justify-content:flex-end'},
-      (function(){const db2=el('button',{class:'btn sec sm'},'Keep all (not duplicates)');
-        db2.addEventListener('click',()=>dismissDup(grp,db2));return db2;})()));
+    if(S.canWrite){
+      const foot=el('div',{style:'margin-top:10px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap'});
+      if(grp.length>2){
+        const ab=el('button',{class:'btn sm'},'Merge all into primary');
+        ab.addEventListener('click',function(){mergeAll(grp,ab);});
+        foot.append(ab);
+      }
+      const db2=el('button',{class:'btn sec sm'},'Keep all (not duplicates)');
+      db2.addEventListener('click',function(){dismissDup(grp,db2);});
+      foot.append(db2);
+      cb.append(foot);
+    }
     card.append(cb);m.append(card);
   });
 }
-async function mergeInto(primaryId,secId,btn){
-  const p=S.startups.find(x=>x.id===primaryId),s=S.startups.find(x=>x.id===secId);if(!p||!s)return;
+async function mergeAll(grp,btn){
   if(btn){btn.disabled=true;btn.textContent='Merging…';}
-  const r=JSON.parse(JSON.stringify(p));
-  ['district','cluster','sector','stage','dpiitNo','kitsNo','event','reason','support','action','notes','fuDate'].forEach(k=>{if(!r[k]&&s[k])r[k]=s[k];});
-  if(s.dpiit==='Yes')r.dpiit='Yes';
-  const rank={'Yes':4,'In Progress':3,'No':2,'No - Not Aware':1,'':0};
-  if((rank[s.skReg]||0)>(rank[r.skReg]||0))r.skReg=s.skReg;
-  if(s.fiApplied==='Yes')r.fiApplied='Yes';
-  r.incentives=Array.from(new Set([...(r.incentives||[]),...(s.incentives||[])]));
-  r.founders=r.founders||[];(s.founders||[]).forEach(f=>{if(f.name&&!r.founders.some(x=>norm(x.name)===norm(f.name)))r.founders.push(f);});
-  r.remarks=[...(r.remarks||[]),...(s.remarks||[])];
-  r.remarks.push({text:'Merged duplicate record "'+(s.name||'')+'" into this startup',at:new Date().toISOString(),by:S.me||'',byName:S.meName||ADMIN_NAME});
-  r.history=r.history||[];r.history.push({action:'Merged duplicate',at:new Date().toISOString(),by:S.me||'',byName:S.meName||''});
-  const ok=await writeStartup(r);
-  if(ok){
+  const primaryId=grp[0].id;
+  const others=grp.slice(1).map(function(x){return x.id;});
+  let done=0;
+  try{
+    for(let i=0;i<others.length;i++){
+      const okOne=await mergeInto(primaryId,others[i],null,true);
+      if(okOne)done++;
+    }
+    toast('Merged '+done+' record'+(done===1?'':'s')+' into '+(grp[0].name||'primary'));
+  }catch(e){
+    toast('Merge failed after '+done+' — '+((e&&e.message)||'error'));
+  }finally{
+    S._dupGroups=null;
+    renderMain();
+  }
+}
+async function mergeInto(primaryId,secId,btn,quiet){
+  const p=(S.startups||[]).find(function(x){return x.id===primaryId;});
+  const s=(S.startups||[]).find(function(x){return x.id===secId;});
+  if(!p||!s){if(btn){btn.disabled=false;btn.textContent='Merge → primary';}return false;}
+  const label=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='Merging…';}
+  try{
+    const r=JSON.parse(JSON.stringify(p));
+    // take anything the primary is missing
+    ['district','cluster','sector','subSector','stage','dpiitNo','kitsNo','event','reason',
+     'support','action','notes','fuDate','website','linkedin','cohort','yearFounded',
+     'companyProfile','product','offering','trl','teamStrength','email','phone'
+    ].forEach(function(k){ if(isBlankish(r[k])&&!isBlankish(s[k]))r[k]=s[k]; });
+    if(s.dpiit==='Yes')r.dpiit='Yes';
+    const rank={'Yes':4,'In Progress':3,'No':2,'No - Not Aware':1,'':0};
+    if((rank[s.skReg]||0)>(rank[r.skReg]||0))r.skReg=s.skReg;
+    if(s.fiApplied==='Yes')r.fiApplied='Yes';
+    if(CALL_DONE.indexOf(s.callStatus||'')>=0&&CALL_DONE.indexOf(r.callStatus||'')<0){
+      r.callStatus=s.callStatus; r.calledOn=r.calledOn||s.calledOn; r.calledBy=r.calledBy||s.calledBy;
+    }
+    r.incentives=Array.from(new Set([].concat(r.incentives||[],s.incentives||[])));
+    r.founders=r.founders||[];
+    (s.founders||[]).forEach(function(f){
+      if(!f||isBlankish(f.name))return;
+      if(!r.founders.some(function(x){return norm(x.name)===norm(f.name);}))r.founders.push(f);
+    });
+    r.remarks=[].concat(r.remarks||[],s.remarks||[]);
+    r.remarks.push({text:'Merged duplicate record "'+(s.name||'')+'" into this startup',
+                    at:new Date().toISOString(),by:S.me||'',byName:S.meName||''});
+    r.history=(r.history||[]).concat([{action:'Merged duplicate',at:new Date().toISOString(),
+                    by:S.me||'',byName:S.meName||''}]);
+    r.district=canonDistrict(r.district)||r.district;
+    r.cluster=toCluster(r.district||'');
+
+    const ok=await writeStartup(r);
+    if(!ok)throw new Error('could not save the merged record');
     if(S.db){try{await S.db.collection('startups').doc(secId).delete();}catch(e){}}
     removeLocal(secId);
-    // update the cached groups in place — no need to rescan everything
     if(S._dupGroups){
-      S._dupGroups=S._dupGroups.map(g=>g.filter(x=>x.id!==secId))
-        .map(g=>g.map(x=>x.id===primaryId?r:x))
-        .filter(g=>g.length>1);
+      S._dupGroups=S._dupGroups
+        .map(function(g){const out=g.filter(function(x){return x.id!==secId;});
+                         out._why=g._why;out._sig=g._sig;return out;})
+        .map(function(g){const out=g.map(function(x){return x.id===primaryId?r:x;});
+                         out._why=g._why;out._sig=g._sig;return out;})
+        .filter(function(g){return g.length>1;});
     }
-    toast('Merged into '+(r.name||'primary'));renderMain();
+    if(!quiet){toast('Merged into '+(r.name||'primary'));renderMain();}
+    return true;
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent=label||'Merge → primary';}
+    if(!quiet)toast('Merge failed — '+((e&&e.message)||'please try again'));
+    if(quiet)throw e;
+    return false;
   }
 }
 async function dismissDup(grp,btn){
+  const label=btn?btn.textContent:'';
   if(btn){btn.disabled=true;btn.textContent='Saving…';}
-  // record a remark on each so the pairing is acknowledged and they won't be re-merged by mistake
-  const batch=[];
-  for(const r0 of grp){
-    const src=S.startups.find(x=>x.id===r0.id);if(!src)continue;
-    const r=JSON.parse(JSON.stringify(src));
-    r.remarks=r.remarks||[];r.remarks.push({text:'Reviewed — confirmed NOT a duplicate of the other matched record(s)',at:new Date().toISOString(),by:S.me||'',byName:S.meName||ADMIN_NAME});
-    r.dupOk=true;batch.push(r);
+  try{
+    const sig=grp._sig||groupSig(grp);
+    const batch=[];
+    for(let i=0;i<grp.length;i++){
+      const src=(S.startups||[]).find(function(x){return x.id===grp[i].id;});
+      if(!src)continue;
+      const r=JSON.parse(JSON.stringify(src));
+      r.remarks=(r.remarks||[]).concat([{text:'Reviewed — confirmed NOT a duplicate of the other matched record(s)',
+        at:new Date().toISOString(),by:S.me||'',byName:S.meName||''}]);
+      // remember THIS exact set of records, so the group never comes back,
+      // but a future match against some other startup still gets flagged
+      const prev=Array.isArray(r.dupOk)?r.dupOk:[];
+      if(prev.indexOf(sig)<0)prev.push(sig);
+      r.dupOk=prev;
+      batch.push(r);
+    }
+    if(batch.length)await writeMany(batch);
+    if(S._dupGroups)S._dupGroups=S._dupGroups.filter(function(g){return (g._sig||groupSig(g))!==sig;});
+    toast('Marked as not duplicates — this group will not reappear');
+    renderMain();
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent=label||'Keep all (not duplicates)';}
+    toast('Could not save — '+((e&&e.message)||'please try again'));
   }
-  await writeMany(batch);
-  const ids=batch.map(x=>x.id);
-  if(S._dupGroups)S._dupGroups=S._dupGroups.filter(g=>!g.some(x=>ids.indexOf(x.id)>=0));
-  toast('Marked as not duplicates');renderMain();
 }
 /* ---------- SETTINGS: dropdown manager ---------- */
+/* ---------- DATA CLEANUP ----------
+   Rewrites stored values using the same rules the app applies on every save
+   and import, so older records catch up. One implementation, not a second
+   copy of the logic in SQL that could drift out of step. */
+function cleanupPreview(){
+  const out={district:[],blanks:[],total:(S.startups||[]).length};
+  (S.startups||[]).forEach(function(r){
+    const cd=canonDistrict(r.district);
+    if(cd!==(r.district||''))out.district.push({id:r.id,name:r.name,from:r.district||'(blank)',to:cd||'(blank)'});
+    let hadPlaceholder=false;
+    ['dpiitNo','kitsNo','email','phone','website','linkedin','event','notes'].forEach(function(k){
+      if(r[k]&&isBlankish(r[k]))hadPlaceholder=true;
+    });
+    (r.founders||[]).forEach(function(f){
+      if(!f)return;
+      ['name','email','phone'].forEach(function(k){if(f[k]&&isBlankish(f[k]))hadPlaceholder=true;});
+    });
+    if(hadPlaceholder)out.blanks.push({id:r.id,name:r.name});
+  });
+  return out;
+}
+async function runCleanup(btn,statusEl){
+  const label=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='Cleaning…';}
+  try{
+    const batch=[];
+    (S.startups||[]).forEach(function(src){
+      const r=JSON.parse(JSON.stringify(src));
+      const before=JSON.stringify(r);
+      r.district=canonDistrict(r.district);
+      r.cluster=toCluster(r.district||'');
+      ['dpiitNo','kitsNo','email','phone','website','linkedin','event','notes'].forEach(function(k){
+        if(r[k]!=null&&isBlankish(r[k]))r[k]='';
+      });
+      (r.founders||[]).forEach(function(f){
+        if(!f)return;
+        ['name','email','phone'].forEach(function(k){if(f[k]!=null&&isBlankish(f[k]))f[k]='';});
+      });
+      if(JSON.stringify(r)!==before)batch.push(r);
+    });
+    if(!batch.length){
+      if(statusEl)statusEl.textContent='Nothing to clean — every record is already consistent.';
+      toast('Already clean');
+      return;
+    }
+    await writeMany(batch,function(done,total){
+      if(statusEl)statusEl.textContent='Saving '+done+' of '+total+'…';
+    });
+    S._dupGroups=null;
+    if(statusEl)statusEl.textContent='Cleaned '+batch.length+' record'+(batch.length===1?'':'s')+'.';
+    toast('Cleaned '+batch.length+' record'+(batch.length===1?'':'s'));
+    renderMain();
+  }catch(e){
+    if(statusEl)statusEl.textContent='Failed — '+((e&&e.message)||'please try again');
+    toast('Cleanup failed');
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent=label||'Clean up now';}
+  }
+}
+function cleanupCard(){
+  const card=el('div',{class:'card',style:'margin-bottom:14px'});
+  card.append(el('div',{class:'ch'},el('h3',{},'Data Cleanup'),
+    el('span',{class:'note'},'Merge spelling variants and clear placeholder values')));
+  const cb=el('div',{class:'cb'});
+  const pv=cleanupPreview();
+  cb.append(el('p',{style:'margin:0 0 10px;color:var(--muted);font-size:12.5px'},
+    'Rewrites district names to one spelling each (Bangalore, BENGALURU and Bengaluru all become Bengaluru Urban, '+
+    'while Bengaluru Rural stays separate) and clears values like NA, Nil, 0 and "-" that mean "nothing". '+
+    'Startups already in the list were added before these rules existed, so run this once to bring them in line.'));
+  const sum=el('div',{style:'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px'});
+  sum.append(el('div',{class:'kpi i',style:'flex:1;min-width:150px'},
+    el('div',{class:'lab'},'Districts to fix'),el('div',{class:'val'},String(pv.district.length))));
+  sum.append(el('div',{class:'kpi a',style:'flex:1;min-width:150px'},
+    el('div',{class:'lab'},'Records with placeholders'),el('div',{class:'val'},String(pv.blanks.length))));
+  cb.append(sum);
+  if(pv.district.length){
+    const seen=new Map();
+    pv.district.forEach(function(d){
+      const k=d.from+' → '+d.to;
+      seen.set(k,(seen.get(k)||0)+1);
+    });
+    const list=el('div',{style:'max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px'});
+    Array.from(seen.entries()).sort(function(a,b){return b[1]-a[1];}).forEach(function(p){
+      list.append(el('div',{style:'font-size:12px;padding:3px 0'},
+        el('b',{},String(p[1])),' × ',p[0]));
+    });
+    cb.append(list);
+  }
+  const status=el('div',{style:'margin-top:10px;font-size:12px;color:var(--muted)'});
+  if(S.canWrite){
+    const btn=el('button',{class:'btn sm',style:'margin-top:10px'},'Clean up now');
+    btn.addEventListener('click',function(){runCleanup(btn,status);});
+    cb.append(btn);
+  }else{
+    cb.append(el('div',{class:'banner warn',style:'margin-top:10px'},'Editor access is needed to run cleanup.'));
+  }
+  cb.append(status);
+  card.append(cb);
+  return card;
+}
 function viewSettings(m){
-  m.append(el('div',{class:'page-h'},el('div',{},el('h1',{},'Manage Dropdowns'),el('p',{},'Add, rename or remove the options your team picks from. Changes apply everywhere and are shared with all users.'))));
+  m.append(el('div',{class:'page-h'},el('div',{},el('h1',{},'Settings & Data'),el('p',{},'Clean up existing records, and manage the options your team picks from. Changes apply everywhere and are shared with all users.'))));
   if(!S.canWrite)m.append(el('div',{class:'banner warn'},'You have view-only access — ask the admin for Editor access to change dropdowns.'));
+  m.append(cleanupCard());
+  m.append(el('div',{class:'page-h',style:'margin-top:4px'},el('div',{},el('h2',{style:'margin:0;font-size:16px'},'Manage Dropdowns'))));
   const grid=el('div',{class:'grid2'});
   EDITABLE_LISTS.forEach(name=>{
     const card=el('div',{class:'card'});
@@ -1111,7 +1501,7 @@ function formBody(r,inline){
   const g=el('div',{class:'fgrid'});
   const F={};
   const txt=(key,label,full)=>{const f=el('div',{class:'field'+(full?' full':'')});f.append(el('label',{},label));const i=el('input',{value:r[key]||'',oninput:e=>r[key]=e.target.value});F[key]=i;f.append(i);return f;};
-  const sel=(key,label,opts,full)=>{const f=el('div',{class:'field'+(full?' full':'')});f.append(el('label',{},label));const s=el('select',{onchange:e=>{r[key]=e.target.value;if(key==='district')r.cluster=toCluster(r.district),F.cluster&&(F.cluster.value=r.cluster);}});opts.forEach(o=>{const op=el('option',{value:o},o);if((r[key]||'')===o)op.selected=true;s.append(op);});F[key]=s;f.append(s);return f;};
+  const sel=(key,label,opts,full)=>{const f=el('div',{class:'field'+(full?' full':'')});f.append(el('label',{},label));const s=el('select',{onchange:e=>{r[key]=e.target.value;if(key==='district'){r.district=canonDistrict(r.district)||r.district;r.cluster=toCluster(r.district);F.cluster&&(F.cluster.value=r.cluster);}}});opts.forEach(o=>{const op=el('option',{value:o},o);if((r[key]||'')===o)op.selected=true;s.append(op);});F[key]=s;f.append(s);return f;};
   const ta=(key,label)=>{const f=el('div',{class:'field full'});f.append(el('label',{},label));const t=el('textarea',{rows:'2',oninput:e=>r[key]=e.target.value});t.value=r[key]||'';f.append(t);return f;};
 
   g.append(el('div',{class:'sectitle'},'Identity'));
@@ -1213,7 +1603,8 @@ function formBody(r,inline){
 }
 async function saveForm(r,inline){
   if(!r.name||!r.name.trim()){toast('Startup name is required');return;}
-  r.cluster=r.cluster||toCluster(r.district);
+  r.district=canonDistrict(r.district);
+  r.cluster=toCluster(r.district);
   // primary email/phone mirror from first founder for search/export
   const f0=(r.founders||[]).find(f=>f.email)||r.founders[0]||{};
   r.email=r.email||f0.email||'';r.phone=r.phone||f0.phone||'';
@@ -1641,6 +2032,16 @@ function normVals(r){
   if(r.skReg!=null)r.skReg=skv(r.skReg);
   if(r.appStage!=null)r.appStage=matchList(r.appStage,LISTS['Application Stage']||[])||r.appStage;
   if(r.priority!=null)r.priority=matchList(r.priority,['High','Medium','Low'])||r.priority;
+  // one spelling per district, so Bangalore/BENGALURU/Bengaluru stop splitting counts
+  if(r.district!=null)r.district=canonDistrict(r.district);
+  // placeholders ("NA", "Nil", "-", "0") are not values
+  ['dpiitNo','kitsNo','email','phone','website','linkedin','event','notes'].forEach(function(k){
+    if(r[k]!=null&&isBlankish(r[k]))r[k]='';
+  });
+  if(Array.isArray(r.founders))r.founders.forEach(function(f){
+    if(!f)return;
+    ['name','email','phone'].forEach(function(k){if(f[k]!=null&&isBlankish(f[k]))f[k]='';});
+  });
   r.cluster=r.cluster&&CLUSTERS.includes(r.cluster)?r.cluster:toCluster(r.district||'');
   if(r.incentives!=null){r.incentives=String(r.incentives).split(/[,;]+/).map(x=>matchIncentive(x)).filter(Boolean);}
   return r;
@@ -1653,18 +2054,38 @@ const INCMAP=[['state gst','State GST'],['internship','Internship'],['patent','P
 function matchIncentive(x){const s=x.toLowerCase();for(const[k,v]of INCMAP)if(s.includes(k))return v;return '';}
 /* Build lookup maps once per import instead of scanning the whole list
    for every row — this is what made large imports freeze. */
+function isRealDpiit(v){
+  const c=clean(v);
+  if(!c)return false;
+  const k=c.replace(/\s/g,'').toLowerCase();
+  if(isBlankish(k))return false;
+  if(k.length<5)return false;          // "NA", "No", "0" never reach here anyway
+  if(!/[0-9]/.test(k))return false;    // a real DPIIT no. has digits (DIPP167024)
+  return true;
+}
+function dpiitKey(v){return isRealDpiit(v)?clean(v).replace(/\s/g,'').toLowerCase():'';}
+
+/* Build lookup maps once per import instead of scanning the whole list for
+   every row. Keys go through the same cleaning as duplicate detection, so an
+   uploaded row whose DPIIT number is "NA" can never be matched onto an
+   unrelated startup that also has "NA". */
 function buildMatchIndex(){
-  const ix={byId:new Map(),byDpiit:new Map(),byEmail:new Map(),byName:new Map(),byToken:new Map()};
-  S.startups.forEach(s=>{
+  const ix={byId:new Map(),byDpiit:new Map(),byEmail:new Map(),byPhone:new Map(),
+            byName:new Map(),byToken:new Map()};
+  (S.startups||[]).forEach(function(s){
     ix.byId.set(s.id,s);
-    const dn=(s.dpiitNo||'').replace(/\s/g,'').toLowerCase();
+    const dn=dpiitKey(s.dpiitNo);
     if(dn&&!ix.byDpiit.has(dn))ix.byDpiit.set(dn,s);
-    [s.email].concat((s.founders||[]).map(f=>f.email)).forEach(e=>{
-      if(!e)return;const k=String(e).toLowerCase();if(!ix.byEmail.has(k))ix.byEmail.set(k,s);
+    const fs=s.founders||[];
+    [s.email].concat(fs.map(function(f){return f&&f.email;})).forEach(function(e){
+      const k=dupEmail(e); if(k&&!ix.byEmail.has(k))ix.byEmail.set(k,s);
     });
-    const nm=norm(s.name);
+    [s.phone].concat(fs.map(function(f){return f&&f.phone;})).forEach(function(p){
+      const k=dupPhone(p); if(k&&!ix.byPhone.has(k))ix.byPhone.set(k,s);
+    });
+    const nm=dupName(s.name);
     if(nm&&!ix.byName.has(nm))ix.byName.set(nm,s);
-    tokens(s.name).forEach(t=>{
+    tokens(s.name).forEach(function(t){
       let arr=ix.byToken.get(t);
       if(!arr){arr=[];ix.byToken.set(t,arr);}
       if(arr.length<300)arr.push(s);
@@ -1672,23 +2093,36 @@ function buildMatchIndex(){
   });
   return ix;
 }
+/* Confident match -> the upload UPDATES this existing startup.
+   Only identifiers that cannot collide are used here. */
 function findExistingIx(rec,ix){
   if(rec.id&&ix.byId.has(rec.id))return ix.byId.get(rec.id);
-  const dn=(rec.dpiitNo||'').replace(/\s/g,'').toLowerCase();
+  const dn=dpiitKey(rec.dpiitNo);
   if(dn&&ix.byDpiit.has(dn))return ix.byDpiit.get(dn);
-  const em=(rec.email||'').toLowerCase();
+  const em=dupEmail(rec.email);
   if(em&&ix.byEmail.has(em))return ix.byEmail.get(em);
-  const nm=norm(rec.name||'');
+  const ph=dupPhone(rec.phone);
+  if(ph&&ix.byPhone.has(ph))return ix.byPhone.get(ph);
+  const nm=dupName(rec.name);
   if(nm&&ix.byName.has(nm))return ix.byName.get(nm);
+  // founder contact details, checked last
+  const fs=rec.founders||[];
+  for(let i=0;i<fs.length;i++){
+    const fe=dupEmail(fs[i]&&fs[i].email);
+    if(fe&&ix.byEmail.has(fe))return ix.byEmail.get(fe);
+    const fp=dupPhone(fs[i]&&fs[i].phone);
+    if(fp&&ix.byPhone.has(fp))return ix.byPhone.get(fp);
+  }
   return null;
 }
+/* Not confident — only ever SUGGESTED for a human to confirm, never applied. */
 function findPossibleIx(rec,ix){
-  const nm=norm(rec.name||'');if(!nm)return null;
-  const seen=new Set();let best=null,bestScore=0;
-  tokens(rec.name).forEach(t=>{
-    (ix.byToken.get(t)||[]).forEach(s=>{
-      if(seen.has(s.id))return;seen.add(s.id);
-      if(norm(s.name)===nm)return;
+  const nm=dupName(rec.name); if(!nm)return null;
+  const seen=new Set(); let best=null,bestScore=0;
+  tokens(rec.name).forEach(function(t){
+    (ix.byToken.get(t)||[]).forEach(function(s){
+      if(seen.has(s.id))return; seen.add(s.id);
+      if(dupName(s.name)===nm)return;
       const sc=simNames(s.name,rec.name);
       if(sc>=0.6&&sc>bestScore){bestScore=sc;best=s;}
     });
@@ -1696,14 +2130,8 @@ function findPossibleIx(rec,ix){
   return best;
 }
 function findExisting(rec){
-  if(rec.id){const byId=S.startups.find(s=>s.id===rec.id);if(byId)return byId;}
-  const dn=(rec.dpiitNo||'').replace(/\s/g,'').toLowerCase();
-  const em=(rec.email||'').toLowerCase();
-  const nm=norm(rec.name||'');
-  return S.startups.find(s=>
-    (dn&&(s.dpiitNo||'').replace(/\s/g,'').toLowerCase()===dn)||
-    (em&&((s.email||'').toLowerCase()===em||(s.founders||[]).some(f=>(f.email||'').toLowerCase()===em)))||
-    (nm&&norm(s.name)===nm));
+  // same rules as findExistingIx, for the one-off (non-import) path
+  return findExistingIx(rec,buildMatchIndex());
 }
 function previewImport(){
   const upd=$('#impupd')?$('#impupd').checked:true;
