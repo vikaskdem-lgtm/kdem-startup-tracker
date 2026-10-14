@@ -700,3 +700,86 @@ including:
 - an uploaded row with DPIIT "NA" matches nothing; a real DPIIT number matches
 - 22,000 rows scanned for duplicates in ~400 ms
 - no record appears in two groups, and no group of one
+
+---
+
+## Build 9 — clusters corrected, and an "Other" bucket
+
+### The bug this fixes
+
+`toCluster()` ended with `return 'Bengaluru Urban'` — anything it did not
+recognise was counted as Bengaluru. A startup in Visakhapatnam, one in Delhi,
+and every record with a blank district were all being reported as Bengaluru
+startups. Build 8 inherited that default.
+
+### Cluster membership, as supplied by KDEM
+
+| Cluster | Districts |
+|---|---|
+| H-D-B | Dharwad (Hubballi), Belagavi, Gadag, Haveri, Bagalkote |
+| Mangaluru | Dakshina Kannada (Mangaluru), Udupi, Uttara Kannada, Kodagu |
+| Mysuru | Mysuru, Mandya, Ramanagara, Chamarajanagara |
+| Shivamogga | Shivamogga, Davanagere, Chikkamagaluru, Hassan |
+| Kalaburagi | Bidar, Kalaburagi, Koppal, Raichur, Yadgir, Vijayanagara, Vijayapura, Ballari |
+| Tumakuru | Tumakuru, Chitradurga, Chikkaballapura, Bengaluru Rural, Kolar |
+
+Hubballi is a city in Dharwad district and Mangaluru a city in Dakshina
+Kannada, so both resolve to their district and land in the right cluster.
+
+Those six lists hold 30 districts. With Bengaluru Urban that is all 31
+districts of Karnataka, so anything outside them is genuinely outside the
+state — which is what makes a clean "Other" bucket possible.
+
+### Four buckets, never overlapping
+
+- **Bengaluru** — Bengaluru Urban only
+- **Beyond Bengaluru** — the 30 districts above, in their six clusters
+- **Other** — outside Karnataka, or a place that could not be matched, **listed
+  by name** so nothing hides inside a total
+- **Not recorded** — district left blank
+
+Cluster assignment is now driven by the canonical district rather than loose
+substring matching, so "Hubballi", "HUBLI" and a full Hubballi address all land
+in H-D-B.
+
+### On your current 883 records
+
+| | startups |
+|---|---|
+| Bengaluru | 568 |
+| Beyond Bengaluru | **291** | 
+| — H-D-B | 68 |
+| — Mangaluru | 62 |
+| — Tumakuru | 51 |
+| — Mysuru | 49 |
+| — Kalaburagi | 37 |
+| — Shivamogga | 24 |
+| Other (outside Karnataka) | 2 |
+| District not recorded | 19 |
+
+The two in Other are Visakhapatnam and Delhi. Both were previously counted as
+Bengaluru.
+
+### Dashboard
+
+- Tiles for **Bengaluru**, **Beyond Bengaluru** and **Other Location**
+- A **Beyond Bengaluru Clusters** card with the six cluster totals
+- **District & Cluster Summary** — the four headline figures, a cluster table
+  showing which districts make up each cluster and how many startups each
+  holds, a full district table with Group and Cluster columns, and a named list
+  of everything in Other
+
+If something in Other is really a Karnataka district, correcting the spelling
+on the startup moves it automatically — no code change needed.
+
+### Tests
+
+**354 passing.** The 96 new cluster tests check every district against the
+supplied list, that all 30 are Beyond Bengaluru, that Bengaluru Rural is in the
+Tumakuru cluster and never counted as Bengaluru, that eight other-state cities
+land in Other, that blanks are "not recorded" rather than Bengaluru, that the
+31 Karnataka districts are fully covered with none listed twice, and that the
+six cluster totals sum exactly to Beyond Bengaluru.
+
+One real gap the tests caught: "Shahpur" (a taluk in Yadgir) was falling into
+Other. Fixed, along with Shorapur, Surapur and Gurmitkal.

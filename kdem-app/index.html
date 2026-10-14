@@ -310,7 +310,8 @@ const S = {
   sort:{key:'name',dir:1},
   editing:null, detail:null, nameCache:{}
 };
-const CLUSTERS=['Bengaluru Urban','H-D-B Cluster','Mangaluru Cluster','Mysuru Cluster','Shivamogga Cluster','Kalaburagi Cluster','Tumakuru Cluster'];
+const CLUSTERS=['Bengaluru Urban','H-D-B Cluster','Mangaluru Cluster','Mysuru Cluster','Shivamogga Cluster','Kalaburagi Cluster','Tumakuru Cluster','Other'];
+const BEYOND_CLUSTERS=['H-D-B Cluster','Mangaluru Cluster','Mysuru Cluster','Shivamogga Cluster','Kalaburagi Cluster','Tumakuru Cluster'];
 const INCENTIVES=['State GST','Internship','Patent','PF/ESI','R&D Grant','Cloud Storage','Quality Cert.','Marketing'];
 const KITS_STATUS=['','Pending with KITS','In Progress at KITS','Responded','Resolved','On Hold'];
 const CALL_STATUS=['Not Called','Called','No Response','Call Back Later','Wrong Number','Not Reachable'];
@@ -328,9 +329,42 @@ const el=(t,a={},...k)=>{const e=document.createElement(t);for(const[n,v]of Obje
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2400);}
 
-/* district -> cluster */
-const DKEY=[['hubbal','H-D-B Cluster'],['hubli','H-D-B Cluster'],['belagavi','H-D-B Cluster'],['belgaum','H-D-B Cluster'],['dharwad','H-D-B Cluster'],['gadag','H-D-B Cluster'],['haveri','H-D-B Cluster'],['bagalkot','H-D-B Cluster'],['mangal','Mangaluru Cluster'],['dakshina kannada','Mangaluru Cluster'],['udupi','Mangaluru Cluster'],['uttara kannada','Mangaluru Cluster'],['karwar','Mangaluru Cluster'],['kodagu','Mangaluru Cluster'],['madikeri','Mangaluru Cluster'],['puttur','Mangaluru Cluster'],['mysur','Mysuru Cluster'],['mysore','Mysuru Cluster'],['mandya','Mysuru Cluster'],['ramanagar','Mysuru Cluster'],['chamarajanagar','Mysuru Cluster'],['shivamogga','Shivamogga Cluster'],['shimoga','Shivamogga Cluster'],['davanagere','Shivamogga Cluster'],['davangere','Shivamogga Cluster'],['chikkamagalur','Shivamogga Cluster'],['chikmagalur','Shivamogga Cluster'],['hassan','Shivamogga Cluster'],['bidar','Kalaburagi Cluster'],['kalaburagi','Kalaburagi Cluster'],['gulbarga','Kalaburagi Cluster'],['koppal','Kalaburagi Cluster'],['raichur','Kalaburagi Cluster'],['yadgir','Kalaburagi Cluster'],['vijayanagara','Kalaburagi Cluster'],['vijayapura','Kalaburagi Cluster'],['bijapur','Kalaburagi Cluster'],['ballari','Kalaburagi Cluster'],['bellary','Kalaburagi Cluster'],['tumakuru','Tumakuru Cluster'],['tumkur','Tumakuru Cluster'],['chitradurga','Tumakuru Cluster'],['chikkaballapur','Tumakuru Cluster'],['bengaluru rural','Tumakuru Cluster'],['kolar','Tumakuru Cluster']];
-function toCluster(d){const s=(d||'').toLowerCase();for(const[k,v]of DKEY)if(s.includes(k))return v;return 'Bengaluru Urban';}
+/* ---------- CLUSTERS (KDEM Beyond Bengaluru programme) ----------
+   The authoritative district list for each cluster. Between them these cover
+   all 31 Karnataka districts, so anything not listed here is either Bengaluru
+   Urban or outside the state — which is why unmatched places now fall into
+   "Other" instead of being quietly counted as Bengaluru. */
+const CLUSTER_DISTRICTS={
+  'H-D-B Cluster':      ['Dharwad','Belagavi','Gadag','Haveri','Bagalkote'],
+  'Mangaluru Cluster':  ['Dakshina Kannada','Udupi','Uttara Kannada','Kodagu'],
+  'Mysuru Cluster':     ['Mysuru','Mandya','Ramanagara','Chamarajanagara'],
+  'Shivamogga Cluster': ['Shivamogga','Davanagere','Chikkamagaluru','Hassan'],
+  'Kalaburagi Cluster': ['Bidar','Kalaburagi','Koppal','Raichur','Yadgir','Vijayanagara','Vijayapura','Ballari'],
+  'Tumakuru Cluster':   ['Tumakuru','Chitradurga','Chikkaballapura','Bengaluru Rural','Kolar']
+};
+const DISTRICT_CLUSTER=(function(){
+  const m=new Map();
+  Object.keys(CLUSTER_DISTRICTS).forEach(function(c){
+    CLUSTER_DISTRICTS[c].forEach(function(d){m.set(d,c);});
+  });
+  return m;
+})();
+/* Cluster for a place, driven by its canonical district, so "Hubballi",
+   "HUBLI" and a full Hubballi address all land in H-D-B. */
+function toCluster(d){
+  const c=canonDistrict(d);
+  if(!c)return '';
+  if(c==='Bengaluru Urban')return 'Bengaluru Urban';
+  return DISTRICT_CLUSTER.get(c)||'Other';
+}
+/* The three headline buckets for the dashboard. */
+function districtGroup(d){
+  const c=canonDistrict(d);
+  if(!c)return '';
+  if(c==='Bengaluru Urban')return 'Bengaluru';
+  if(DISTRICT_CLUSTER.has(c))return 'Beyond Bengaluru';
+  return 'Other';
+}
 /* ---------- VALUE CLEANING ----------
    People type all sorts of things to mean "I don't have this": NA, N/A, Nil,
    Nill, No, -, 0, "Not Registered". Treating those as real values is what put
@@ -371,7 +405,7 @@ const DIST_ALIAS=[
   ['Davanagere',       ['davanagere','davangere','davanagre','davengere','harihar','channagiri']],
   ['Chikkaballapura',  ['chikkaballapura','chikkaballapur','chikballapur','chickballapur','chintamani','gauribidanur','sidlaghatta']],
   ['Ramanagara',       ['ramanagara','ramanagar','ramanagaram','ramnagar','ramanagara district','channapatna','magadi','kanakapura','bidadi','harohalli']],
-  ['Yadgir',           ['yadgir','yadagiri','yadgiri','shahapur','surpur']],
+  ['Yadgir',           ['yadgir','yadagiri','yadgiri','shahapur','shahpur','shorapur','surpur','surapur','gurmitkal']],
   ['Bagalkote',        ['bagalkote','bagalkot','bagalakote','jamkhandi','mudhol','badami']],
   ['Mysuru',           ['mysuru','mysore','maisuru','mysuru city','nanjangud','hunsur','t narsipur']],
   ['Mandya',           ['mandya','maddur','malavalli','srirangapatna','pandavapura','nagamangala']],
@@ -407,17 +441,36 @@ function canonDistrict(d){
   // unknown district: Title Case it so "SOMEPLACE" and "someplace" agree
   return raw.toLowerCase().replace(/\b[a-z]/g,function(c){return c.toUpperCase();});
 }
-/* KDEM counts Bengaluru Urban as "Bengaluru"; everything else in the state,
-   Bengaluru Rural included, is "Beyond Bengaluru" — same split the cluster
-   mapping already uses (Bengaluru Rural sits in the Tumakuru cluster). */
-function isBengaluru(d){return canonDistrict(d)==='Bengaluru Urban';}
+/* Bengaluru Urban is "Bengaluru". The six cluster district lists are "Beyond
+   Bengaluru". Anything else — another state, or a place we could not place —
+   is "Other", and is listed by name rather than hidden inside a total. */
+function isBengaluru(d){return districtGroup(d)==='Bengaluru';}
 function bengaluruSplit(rows){
-  let beng=0,beyond=0,unknown=0;
+  let beng=0,beyond=0,other=0,unknown=0;
+  const otherNames=new Map();
+  const clusters=new Map();
+  BEYOND_CLUSTERS.forEach(function(c){clusters.set(c,0);});
   (rows||[]).forEach(function(r){
-    const c=canonDistrict(r.district);
-    if(!c)unknown++; else if(c==='Bengaluru Urban')beng++; else beyond++;
+    const g=districtGroup(r.district);
+    if(!g){unknown++;return;}
+    if(g==='Bengaluru'){beng++;return;}
+    if(g==='Beyond Bengaluru'){
+      beyond++;
+      const c=toCluster(r.district);
+      clusters.set(c,(clusters.get(c)||0)+1);
+      return;
+    }
+    other++;
+    const nm=canonDistrict(r.district);
+    otherNames.set(nm,(otherNames.get(nm)||0)+1);
   });
-  return {bengaluru:beng,beyond:beyond,unknown:unknown,districts:districtCounts(rows)};
+  return {
+    bengaluru:beng, beyond:beyond, other:other, unknown:unknown,
+    clusters:Array.from(clusters.entries()),
+    otherDistricts:Array.from(otherNames.entries())
+      .sort(function(a,b){return b[1]-a[1]||a[0].localeCompare(b[0]);}),
+    districts:districtCounts(rows)
+  };
 }
 function districtCounts(rows){
   const m=new Map();
@@ -512,9 +565,10 @@ function kpis(rows){
     kitsRej:c(r=>r.kitsConfReg==='Rejected'||r.kitsConfInc==='Rejected'),
     called:c(r=>CALL_DONE.includes(r.callStatus||'')),
     notCalled:c(r=>!CALL_DONE.includes(r.callStatus||'')),
-    bengaluru:c(r=>isBengaluru(r.district)),
-    beyond:c(r=>{const d=canonDistrict(r.district);return !!d&&d!=='Bengaluru Urban';}),
-    noDistrict:c(r=>!canonDistrict(r.district)),
+    bengaluru:c(r=>districtGroup(r.district)==='Bengaluru'),
+    beyond:c(r=>districtGroup(r.district)==='Beyond Bengaluru'),
+    otherLoc:c(r=>districtGroup(r.district)==='Other'),
+    noDistrict:c(r=>!districtGroup(r.district)),
   };
 }
 
@@ -575,6 +629,7 @@ function viewDashboard(m){
     ['Benefits Received / Disbursed',k.benefits,pc(k.benefits,t),'g'],
     ['Bengaluru',k.bengaluru,pc(k.bengaluru,t),'i'],
     ['Beyond Bengaluru',k.beyond,pc(k.beyond,t),'g'],
+    ['Other Location',k.otherLoc,pc(k.otherLoc,t),'a'],
     ['Founders Met in Person',k.met,pc(k.met,t),'i'],
     ['Startups Called by KDEM',k.called,pc(k.called,t),'g'],
     ['Still to Call',k.notCalled,pc(k.notCalled,t),'b'],
@@ -645,14 +700,16 @@ function dashExtra(m){
   g.append(breakdownCard('KDEM Calling Progress','Tap All Startups to work the list',
     CALL_STATUS.map(cs=>[cs,S.startups.filter(r=>(r.callStatus||'Not Called')===cs).length]).filter(p=>p[1])));
   g.append(breakdownCard('Source of Contact','Where startups came from',countBy(S.startups,'source')));
-  g.append(breakdownCard('Bengaluru vs Beyond Bengaluru','Bengaluru Rural counts as Beyond Bengaluru',
+  g.append(breakdownCard('Bengaluru · Beyond Bengaluru · Other','Bengaluru Rural sits in the Tumakuru cluster',
     (function(){
       const sp=bengaluruSplit(S.startups);
       const out=[['Bengaluru',sp.bengaluru],['Beyond Bengaluru',sp.beyond]];
+      if(sp.other)out.push(['Other (outside Karnataka)',sp.other]);
       if(sp.unknown)out.push(['District not recorded',sp.unknown]);
       return out;
     })()));
-  g.append(breakdownCard('District / City','All districts, spellings merged',districtCounts(S.startups),40));
+  g.append(breakdownCard('Beyond Bengaluru Clusters','Startups in each KDEM cluster',
+    bengaluruSplit(S.startups).clusters.filter(function(p){return p[1];})));
   m.append(g);
   m.append(beyondTable());
   // day-by-day cumulative growth
@@ -662,42 +719,100 @@ function dashExtra(m){
 /* Every district, with the Bengaluru / Beyond Bengaluru totals spelled out.
    Spelling and case variants are merged first, so "Bangalore", "BENGALURU"
    and "Bengaluru Urban" are one row, not four. */
+/* Full district picture: the three headline buckets, every KDEM cluster with
+   its districts, and the places that fall outside Karnataka listed by name so
+   they are visible rather than silently folded into a total. */
 function beyondTable(){
   const sp=bengaluruSplit(S.startups);
   const total=(S.startups||[]).length;
+  const pcOf=function(v){return total?Math.round(v*100/total)+'%':'—';};
+
   const card=el('div',{class:'card',style:'margin-top:14px'},
-    el('div',{class:'ch'},el('h3',{},'District Summary'),
+    el('div',{class:'ch'},el('h3',{},'District & Cluster Summary'),
       el('span',{class:'note'},sp.districts.length+' districts · '+total+' startups')));
   const cb=el('div',{class:'cb'});
 
-  const head=el('div',{style:'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px'});
-  const chip=function(lab,val,cls){
+  // headline buckets
+  const head=el('div',{style:'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px'});
+  const chip=function(lab,val,cls,sub){
     return el('div',{class:'kpi '+(cls||''),style:'flex:1;min-width:150px'},
       el('div',{class:'lab'},lab),el('div',{class:'val'},String(val)),
-      el('div',{class:'sub'},total?Math.round(val*100/total)+'% of total':''));
+      el('div',{class:'sub'},sub||pcOf(val)));
   };
-  head.append(chip('Bengaluru',sp.bengaluru,'i'));
-  head.append(chip('Beyond Bengaluru',sp.beyond,'g'));
-  if(sp.unknown)head.append(chip('District not recorded',sp.unknown,'b'));
+  head.append(chip('Bengaluru',sp.bengaluru,'i','Bengaluru Urban · '+pcOf(sp.bengaluru)));
+  head.append(chip('Beyond Bengaluru',sp.beyond,'g','6 clusters · '+pcOf(sp.beyond)));
+  if(sp.other)head.append(chip('Other',sp.other,'a','Outside Karnataka · '+pcOf(sp.other)));
+  if(sp.unknown)head.append(chip('Not recorded',sp.unknown,'b',pcOf(sp.unknown)));
   cb.append(head);
 
+  // cluster-by-cluster, with the districts that make up each one
+  cb.append(el('h4',{style:'margin:4px 0 8px;font-size:13px'},'Beyond Bengaluru — by cluster'));
+  const ct=el('table',{class:'tbl'});
+  const cth=el('tr',{});
+  ['Cluster','Districts','Startups','% of total'].forEach(function(x){cth.append(el('th',{},x));});
+  ct.append(el('thead',{},cth));
+  const ctb=el('tbody',{});
+  const byDistrict={};
+  sp.districts.forEach(function(p){byDistrict[p[0]]=p[1];});
+  BEYOND_CLUSTERS.forEach(function(c){
+    const n=(sp.clusters.find(function(x){return x[0]===c;})||[c,0])[1];
+    const ds=CLUSTER_DISTRICTS[c].map(function(d){
+      const k=byDistrict[d]||0;
+      return k?(d+' ('+k+')'):d;
+    }).join(', ');
+    ctb.append(el('tr',{},
+      el('td',{},el('b',{},c)),
+      el('td',{style:'font-size:11.5px;color:var(--muted)'},ds),
+      el('td',{},String(n)),
+      el('td',{},pcOf(n))));
+  });
+  ctb.append(el('tr',{style:'font-weight:600'},
+    el('td',{},'Beyond Bengaluru total'),el('td',{},''),
+    el('td',{},String(sp.beyond)),el('td',{},pcOf(sp.beyond))));
+  ct.append(ctb);
+  cb.append(el('div',{class:'tablewrap'},ct));
+
+  // every district, with its group and cluster
+  cb.append(el('h4',{style:'margin:16px 0 8px;font-size:13px'},'All districts'));
   const tbl=el('table',{class:'tbl'});
   const th=el('tr',{});
-  ['#','District','Startups','% of total','Group'].forEach(function(x){th.append(el('th',{},x));});
+  ['#','District','Startups','% of total','Group','Cluster'].forEach(function(x){th.append(el('th',{},x));});
   tbl.append(el('thead',{},th));
   const tb=el('tbody',{});
   sp.districts.forEach(function(p,i){
-    const isB=p[0]==='Bengaluru Urban';
+    const grp=districtGroup(p[0]);
+    const cls=grp==='Bengaluru'?'info':(grp==='Beyond Bengaluru'?'good':'warn');
     tb.append(el('tr',{},
       el('td',{},String(i+1)),
       el('td',{},el('b',{},p[0])),
       el('td',{},String(p[1])),
-      el('td',{},total?Math.round(p[1]*100/total)+'%':'—'),
-      el('td',{},el('span',{class:'chip '+(isB?'info':'good')},isB?'Bengaluru':'Beyond Bengaluru'))));
+      el('td',{},pcOf(p[1])),
+      el('td',{},el('span',{class:'chip '+cls},grp||'—')),
+      el('td',{style:'font-size:11.5px;color:var(--muted)'},toCluster(p[0])||'—')));
   });
-  if(!sp.districts.length)tb.append(el('tr',{},el('td',{colspan:'5'},'No districts recorded yet.')));
+  if(!sp.districts.length)tb.append(el('tr',{},el('td',{colspan:'6'},'No districts recorded yet.')));
   tbl.append(tb);
   cb.append(el('div',{class:'tablewrap'},tbl));
+
+  // places outside Karnataka, named
+  if(sp.otherDistricts.length){
+    cb.append(el('h4',{style:'margin:16px 0 8px;font-size:13px'},
+      'Other — outside Karnataka or not recognised ('+sp.other+')'));
+    cb.append(el('p',{style:'margin:0 0 8px;color:var(--muted);font-size:12px'},
+      'These are counted separately, never inside Bengaluru or Beyond Bengaluru. '+
+      'If one of these is really a Karnataka district, fix the spelling on the startup and it will move automatically.'));
+    const ot=el('table',{class:'tbl'});
+    const oth=el('tr',{});
+    ['District / place','Startups'].forEach(function(x){oth.append(el('th',{},x));});
+    ot.append(el('thead',{},oth));
+    const otb=el('tbody',{});
+    sp.otherDistricts.forEach(function(p){
+      otb.append(el('tr',{},el('td',{},p[0]),el('td',{},String(p[1]))));
+    });
+    ot.append(otb);
+    cb.append(el('div',{class:'tablewrap'},ot));
+  }
+
   card.append(cb);
   return card;
 }
