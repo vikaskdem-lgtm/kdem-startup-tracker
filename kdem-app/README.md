@@ -783,3 +783,112 @@ six cluster totals sum exactly to Beyond Bengaluru.
 
 One real gap the tests caught: "Shahpur" (a taluk in Yadgir) was falling into
 Other. Fixed, along with Shorapur, Surapur and Gurmitkal.
+
+---
+
+## Build 10 — action notes, draft safety, export parity, admin-only delete
+
+### Your typing is no longer lost
+
+Switching browser tabs while filling in **Add Startup** wiped the form. Coming
+back to the tab triggers a refresh of the startup list, and the refresh called
+`renderMain()`, which empties the page and rebuilds the form from blank. The
+refresh-on-refocus added in build 6 made it happen every single time.
+
+Two fixes, so it cannot recur:
+
+1. **A refresh never rebuilds a form that is open.** Incoming data is still
+   applied in the background; only the repaint is skipped while you are in Add
+   Startup or have an edit drawer open.
+2. **The form keeps a draft** as you type. If anything does clear the page —
+   an accidental reload, a closed tab — reopening Add Startup restores what you
+   had, with a "Start a blank form" button if you would rather not. The draft
+   is cleared the moment the startup is saved, and a blank form is never
+   stored as a draft.
+
+### Action Notes / Remarks
+
+The notes cell in **All Startups** is now a free-text box with a dropdown of
+standard notes underneath. Type anything you like, or pick one of:
+
+Shared the assistance document through the whatsapp. · No response to the
+call. · Applied for SK Registration - Waiting for approval. · Shared the KDEM
+email for the reimbursement assistance. · Applied for FI - Waiting for
+Reimbursement · Will Register/ Apply · Not Reachable. · Will Call back. ·
+Wrong Number. · Call back later. · No Support Required. · Startup is 10 Year
+old. · Registered in other State. · Startup Closed /  Stopped. · On Track. ·
+Others.
+
+Picking one in the table fills the box and saves immediately. In the Add/Edit
+form the same dropdown **appends** to whatever you have already typed, so you
+can combine a standard note with your own words.
+
+The list is editable: **Settings & Data → Action Notes**. Add, rename or
+remove entries and they appear for everyone.
+
+### Export now matches the dashboard exactly
+
+The Excel Dashboard sheet computed its own figures, so it could disagree with
+the website. It now calls the very same `kpis()` and `bengaluruSplit()`
+functions the on-screen dashboard uses — they cannot drift apart, because
+there is only one calculation.
+
+The sheet carries: all 17 headline numbers in the same order as the website,
+the calling-progress breakdown, the Bengaluru / Beyond Bengaluru / Other /
+not-recorded split with a total, a cluster table, and every district with its
+group and cluster.
+
+**A bug this surfaced:** the new district table is headed "District /
+Startups / Group / Cluster", and "Startups" reads as a startup-name column.
+Re-uploading an exported file would therefore have imported the dashboard's
+own rows as startups. Sheets named Dashboard, READ ME, Lists, Summary,
+Instructions and similar are now rejected as data outright, whatever their
+column headings say.
+
+### Delete is admin-only
+
+| | admin | editor | viewer |
+|---|---|---|---|
+| View everything | yes | yes | yes |
+| Add a startup | yes | yes | — |
+| Edit, call notes, status | yes | yes | — |
+| Upload / update by Excel | yes | yes | — |
+| Mark "Keep all" on duplicates | yes | yes | — |
+| **Merge duplicates** (removes a record) | yes | — | — |
+| **Delete an uploaded Excel batch** | yes | — | — |
+| **Undo an import** (removes records) | yes | — | — |
+
+Enforced in the database, not just hidden in the UI — an editor cannot delete
+even by calling the API directly. Editors see "Admin only" where the delete
+button would be.
+
+**All six accounts are admin today**, so nothing changes until you demote
+some. The statement to do that is at the bottom of
+`supabase/07-admin-delete.sql`.
+
+### Staying connected
+
+Two faults left the app stuck on "Connecting to the live database…":
+
+- A failed first read gave up silently and never tried again.
+- A dropped realtime socket was never resubscribed, so other people's edits
+  stopped arriving while the status dot still looked healthy.
+
+Both now retry with a backoff (2s, 4s, 8s … capped at a minute), the socket is
+rebuilt from scratch when it dies, and the app reconnects when the tab regains
+focus or the network comes back.
+
+### SQL to run (once)
+
+`supabase/07-admin-delete.sql` — points the delete policies at
+`private.is_admin()`. No VACUUM, so it runs safely as one transaction.
+
+### Tests
+
+**466 passing**, up from 354. New: 70 export tests (every headline number in
+the sheet equals the dashboard's, the four location buckets reconcile, call
+statuses sum to every row, all 40 fields survive export → re-import unchanged,
+and the dashboard numbers are identical after a round trip) and 42 draft and
+notes tests (a blank form is not a draft, any typed field is, drafts survive
+and restore, saving clears them, blocked storage does not crash, an open form
+blocks the re-render, and all 16 standard notes are present in order).

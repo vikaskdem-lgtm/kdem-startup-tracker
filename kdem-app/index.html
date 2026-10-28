@@ -266,6 +266,12 @@ nav#side .navbtn.on::before{content:"";position:absolute;left:0;top:7px;bottom:7
 
 .banner.bad{background:var(--bad-soft);color:var(--bad)}
 .modal .box .dh{border-radius:var(--radius) var(--radius) 0 0}
+
+.notecell{display:flex;flex-direction:column;gap:4px}
+.notecell .inline-txt{width:100%}
+.notesel{font-size:11px;padding:3px 4px;border:1px solid var(--line);border-radius:6px;
+  background:var(--card);color:var(--muted);max-width:240px}
+.notesel:hover{color:var(--text)}
 </style>
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -295,7 +301,7 @@ nav#side .navbtn.on::before{content:"";position:absolute;left:0;top:7px;bottom:7
 
 <script>
 const SEED = [];
-const LISTS = {"Source of Contact": ["Registration Status Form", "Fiscal Incentive Survey", "Fiscal Incentive Tracker Form", "Email Response", "Phone Call / Tele-calling", "WhatsApp", "Event / Meeting", "Walk-in / Office Visit", "Referral", "Other"], "Sector": ["AgriTech", "AI / ML / DeepTech", "BioTech / Life Sciences", "CleanTech / Sustainability", "D2C / Consumer", "DefenceTech / Aerospace", "EdTech", "Electronics / ESDM", "FinTech", "FoodTech", "GovTech", "Gaming / AVGC", "HealthTech / MedTech", "IT / SaaS", "Logistics / Mobility", "Manufacturing", "Retail / E-Commerce", "SpaceTech", "TravelTech", "Other"], "Startup Stage": ["Ideation", "Validation / MVP", "Early Revenue", "Growth / Scaling", "Established (3+ years)"], "Application Stage": ["Not Applied", "Documents in Preparation", "Partially Submitted", "Submitted - Awaiting Outcome", "Under Department Review", "Query Raised / Docs Pending", "Approved", "Benefit Received / Disbursed", "Rejected", "Not Eligible"], "Support Required": ["Registration Assistance", "Document / Annexure Guidance", "Affidavit / Notary Guidance", "Application Status Update", "Funding / Investor Access", "Mentorship & Networking", "Awareness of Government Schemes", "Market Access", "Regulatory / Compliance", "Talent / Hiring", "Infrastructure / Workspace", "No Support Needed", "Other"], "KDEM Action Taken": ["Called", "Emailed", "Called + Emailed", "WhatsApp Follow-up", "Met at Event", "Guided on Documents", "Registration Assistance Given", "Escalated to KITS", "Escalated to EIT-BT Dept", "Issue Resolved", "No Action Yet"], "Incentive Applied": ["Yes", "No", "Planning to Apply", "Not Eligible"], "SK Registration Status": ["Yes", "In Progress", "No", "No - Not Aware"], "KITS Confirmation Tracker update": ["In progess", "Selected", "Rejected"], "Fiscal Incentives": ["State GST Reimbursement", "Internship Support", "Patent Reimbursement", "PF/ESI Reimbursement", "R&D Grant Support", "Cloud Storage Reimbursement", "Quality Certification Cost Reimbursement", "Marketing Cost Reimbursement", "None"], "Priority": ["High", "Medium", "Low"], "Yes / No": ["Yes", "No"]};
+const LISTS = {"Source of Contact": ["Registration Status Form", "Fiscal Incentive Survey", "Fiscal Incentive Tracker Form", "Email Response", "Phone Call / Tele-calling", "WhatsApp", "Event / Meeting", "Walk-in / Office Visit", "Referral", "Other"], "Sector": ["AgriTech", "AI / ML / DeepTech", "BioTech / Life Sciences", "CleanTech / Sustainability", "D2C / Consumer", "DefenceTech / Aerospace", "EdTech", "Electronics / ESDM", "FinTech", "FoodTech", "GovTech", "Gaming / AVGC", "HealthTech / MedTech", "IT / SaaS", "Logistics / Mobility", "Manufacturing", "Retail / E-Commerce", "SpaceTech", "TravelTech", "Other"], "Startup Stage": ["Ideation", "Validation / MVP", "Early Revenue", "Growth / Scaling", "Established (3+ years)"], "Application Stage": ["Not Applied", "Documents in Preparation", "Partially Submitted", "Submitted - Awaiting Outcome", "Under Department Review", "Query Raised / Docs Pending", "Approved", "Benefit Received / Disbursed", "Rejected", "Not Eligible"], "Support Required": ["Registration Assistance", "Document / Annexure Guidance", "Affidavit / Notary Guidance", "Application Status Update", "Funding / Investor Access", "Mentorship & Networking", "Awareness of Government Schemes", "Market Access", "Regulatory / Compliance", "Talent / Hiring", "Infrastructure / Workspace", "No Support Needed", "Other"], "KDEM Action Taken": ["Called", "Emailed", "Called + Emailed", "WhatsApp Follow-up", "Met at Event", "Guided on Documents", "Registration Assistance Given", "Escalated to KITS", "Escalated to EIT-BT Dept", "Issue Resolved", "No Action Yet"], "Incentive Applied": ["Yes", "No", "Planning to Apply", "Not Eligible"], "SK Registration Status": ["Yes", "In Progress", "No", "No - Not Aware"], "KITS Confirmation Tracker update": ["In progess", "Selected", "Rejected"], "Fiscal Incentives": ["State GST Reimbursement", "Internship Support", "Patent Reimbursement", "PF/ESI Reimbursement", "R&D Grant Support", "Cloud Storage Reimbursement", "Quality Certification Cost Reimbursement", "Marketing Cost Reimbursement", "None"], "Priority": ["High", "Medium", "Low"], "Yes / No": ["Yes", "No"], "Action Notes": ["Shared the assistance document through the whatsapp.", "No response to the call.", "Applied for SK Registration - Waiting for approval.", "Shared the KDEM email for the reimbursement assistance.", "Applied for FI - Waiting for Reimbursement", "Will Register/ Apply", "Not Reachable.", "Will Call back.", "Wrong Number.", "Call back later.", "No Support Required.", "Startup is 10 Year old.", "Registered in other State.", "Startup Closed /  Stopped.", "On Track.", "Others."]};
 const RESOURCES = [{"group": "Registration", "title": "Startup Karnataka Registration (official form)", "url": "https://docs.google.com/forms/d/e/1FAIpQLSdiZM7SwC6CL2b2kJgCAjACv8FVgqXzYZqnpj0n-qfE7vZIyA/viewform"}, {"group": "Registration", "title": "Registration Status Update form", "url": "https://forms.gle/xcYKnKHWNnMJtDaj6"}, {"group": "Registration", "title": "Policy, Registration & Fiscal Incentive Tracker + Support", "url": "https://docs.google.com/forms/d/e/1FAIpQLSf3D5odP8hqiFGX3Ynkd4ozcsKbahLwU3uRGPXUl30J_rA6GQ/viewform"}, {"group": "Registration", "title": "Fiscal Incentive Tracker (fill after applying / to log issues)", "url": "https://docs.google.com/forms/d/1NOs46VavazTo-2LurzfV-mDaaf_4cl46ii1U4z7soLw/viewform"}, {"group": "Fiscal Incentive Application Forms", "title": "State GST Reimbursement", "url": "https://docs.google.com/forms/d/1TACjnzDUt6Z5Jd-SFQTKkwQ6BuXAzZGzFGaE4auOz30/edit"}, {"group": "Fiscal Incentive Application Forms", "title": "Internship Support", "url": "https://docs.google.com/forms/d/1x37Tx3XgJL7wR7OaPlKoGUNVFutFlVIYdvHIfwkb_SI/edit"}, {"group": "Fiscal Incentive Application Forms", "title": "Patent Reimbursement", "url": "https://docs.google.com/forms/d/1pPCUaeSAzEdWFISG2C07zb8rdpfKZ3eJz9MM_kLYM_U/edit"}, {"group": "Fiscal Incentive Application Forms", "title": "PF/ESI Reimbursement", "url": "https://docs.google.com/forms/d/1mtoL0qpWJiu0q9o3-gAjSjMUa62m0eePZgnGXHrfXPU/edit"}, {"group": "Fiscal Incentive Application Forms", "title": "R&D Grant Support", "url": "https://docs.google.com/forms/d/1Apu_aAqSY0tqpCrDv8EG1wl9cxc63MbJrRrde5tGYGM/edit"}, {"group": "Fiscal Incentive Application Forms", "title": "Cloud Storage Reimbursement", "url": "https://docs.google.com/forms/d/1BP939XpAmXwCp2FP6Mr_V3yMcDry_8ULX5bsotRPItE/edit"}, {"group": "Fiscal Incentive Application Forms", "title": "Quality Certification Cost", "url": "https://docs.google.com/forms/d/1YJfpRmsqRQLwu8hwqL5wNFFB8z3l9rUaonzc-8k8Le0/edit"}, {"group": "Fiscal Incentive Application Forms", "title": "Marketing Cost Reimbursement", "url": "https://docs.google.com/forms/d/1UN7Z0TiK6iN-FHlI96sWNiUokKw0oCAHNnLM2nnNTj8/edit"}, {"group": "Fiscal Incentive Application Forms", "title": "EIT-BT — Incentives 2025-30 (official details)", "url": "https://eitbt.karnataka.gov.in/startup/public/151/incentives-2025-30/en"}, {"group": "Community & Updates", "title": "DPIIT × Startup Karnataka — Founder Connect (WhatsApp Channel)", "url": "https://whatsapp.com/channel/0029VbCBg4O7T8bPzPYJzo2T"}, {"group": "Community & Updates", "title": "Startup Policy Cafe — WhatsApp Community", "url": "https://chat.whatsapp.com/KkAWubFetQ2ASQ2kCFqSMm"}, {"group": "Events & Platforms", "title": "Startup X-Factor — Session 3 RSVP", "url": "https://docs.google.com/forms/d/e/1FAIpQLSeFCqwpknw96MapuT93SznFPQxhTSTEcO5sJ_fIMngaVGI4tw/viewform"}, {"group": "Events & Platforms", "title": "Startup X-Factor — Session 4 RSVP", "url": "https://forms.gle/PVDUdM2F3SLvumoz5"}, {"group": "Events & Platforms", "title": "AMA Registration", "url": "https://forms.gle/AEKWixhoWYxTuzVs8"}, {"group": "Events & Platforms", "title": "Survey on Startup Funding & Ecosystem Investments", "url": "https://docs.google.com/forms/d/e/1FAIpQLSdwOigCXHg2ZkkMj6qhVan6Qhm0NdeJfZ0aS-oCxk5Td50F0A/viewform"}, {"group": "Events & Platforms", "title": "Elevate — Startup Karnataka", "url": "https://elevate.startupkarnataka.in/#contact"}, {"group": "Events & Platforms", "title": "KITE Platform", "url": "https://kite-v2-three.vercel.app/"}];
 </script>
 <script>
@@ -486,7 +492,7 @@ function norm(n){return (n||'').toLowerCase().replace(/[^a-z0-9]/g,'').replace(/
 const STOP=new Set(['private','limited','pvt','ltd','llp','the','and','technologies','technology','solutions','solution','services','india','labs','ventures','innovations','innovation','enterprises','company','co','systems']);
 function tokens(n){return new Set((n||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(t=>t.length>1&&!STOP.has(t)));}
 function simNames(a,b){const A=tokens(a),B=tokens(b);if(!A.size||!B.size)return 0;let inter=0;A.forEach(t=>{if(B.has(t))inter++;});return inter/(A.size+B.size-inter);}
-const EDITABLE_LISTS=['Source of Contact','Sector','Startup Stage','Application Stage','Support Required','KDEM Action Taken','Priority'];
+const EDITABLE_LISTS=['Action Notes','Source of Contact','Sector','Startup Stage','Application Stage','Support Required','KDEM Action Taken','Priority'];
 function listFor(name){return (LISTS[name]||[]);}
 /* ---- user-created custom fields (made during import, stored for everyone) ---- */
 let CUSTOM_FIELDS=[];
@@ -589,6 +595,7 @@ function renderWho(){
   const w=$('#who');w.innerHTML='';
   const isAdmin=S.user&&S.user.isOwner&&S.user.isOwner();
   const role=S.canWrite?(isAdmin?'Admin':'Editor'):(S.dbReady?'Viewer':'Read-only');
+  S.isAdmin=isAdmin;
   w.append(el('span',{class:'rolechip'},role));
   const nm=S.meName||(isAdmin?ADMIN_NAME:'');
   if(nm) w.append(el('span',{},nm));
@@ -994,7 +1001,7 @@ function viewDuplicates(m){
            clean(r.dpiitNo)].filter(Boolean).join(' · ')||'no contact details')));
       const acts=el('div',{style:'display:flex;gap:6px;flex-wrap:wrap'});
       acts.append(el('button',{class:'btn sec sm',onclick:function(){openDetail(r.id);}},'View'));
-      if(S.canWrite&&ri>0){
+      if(S.isAdmin&&ri>0){
         const pb=el('button',{class:'btn sec sm'},'Make primary');
         pb.addEventListener('click',function(){
           const i=grp.indexOf(r); if(i>0){grp.splice(i,1);grp.unshift(r);}
@@ -1007,7 +1014,7 @@ function viewDuplicates(m){
       }
       row.append(acts);cb.append(row);
     });
-    if(S.canWrite){
+    if(S.isAdmin){
       const foot=el('div',{style:'margin-top:10px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap'});
       if(grp.length>2){
         const ab=el('button',{class:'btn sm'},'Merge all into primary');
@@ -1017,6 +1024,12 @@ function viewDuplicates(m){
       const db2=el('button',{class:'btn sec sm'},'Keep all (not duplicates)');
       db2.addEventListener('click',function(){dismissDup(grp,db2);});
       foot.append(db2);
+      cb.append(foot);
+    }else if(S.canWrite){
+      const foot=el('div',{style:'margin-top:10px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap'});
+      const db3=el('button',{class:'btn sec sm'},'Keep all (not duplicates)');
+      db3.addEventListener('click',function(){dismissDup(grp,db3);});
+      foot.append(el('span',{class:'note',style:'align-self:center'},'Merging removes a record — admin only'),db3);
       cb.append(foot);
     }
     card.append(cb);m.append(card);
@@ -1368,6 +1381,38 @@ function selFilter(key,ph,opts){
 }
 const COLS=[['name','Startup'],['callStatus','KDEM Call'],['email','Email'],['phone','Mobile'],['cluster','Cluster'],['skReg','SK Reg'],['fiApplied','FI'],['priority','Priority'],['notes','Action Notes / Remarks']];
 /* A text cell that saves when you leave it — for notes straight from the list. */
+/* Action Notes cell: a free-text box on top for anything, and a dropdown of
+   the standard notes underneath. Picking one fills the box and saves at once;
+   typing your own works exactly as before. */
+function inlineNote(r){
+  if(!S.canWrite)return el('span',{class:'cellwrap'},r.notes||'—');
+  const wrap=el('div',{class:'notecell'});
+  const inp=el('input',{class:'inline-txt',value:r.notes||'',placeholder:'Type a remark…',
+    onclick:e=>e.stopPropagation(),
+    onkeydown:e=>{e.stopPropagation();if(e.key==='Enter')e.target.blur();}});
+  const save=async function(val){
+    const src=S.startups.find(x=>x.id===r.id);if(!src)return;
+    if((src.notes||'')===val)return;
+    const rec=JSON.parse(JSON.stringify(src));
+    rec.notes=val;
+    rec.history=(rec.history||[]).concat([{action:'Edited',at:new Date().toISOString(),
+      by:S.me||'',byName:S.meName||''}]);
+    if(rec.history.length>20)rec.history=rec.history.slice(-20);
+    const ok=await writeStartup(rec);
+    if(ok)toast('Note saved');
+  };
+  inp.addEventListener('change',function(e){e.stopPropagation();save(e.target.value);});
+  const sel=el('select',{class:'notesel',onclick:e=>e.stopPropagation()});
+  sel.append(el('option',{value:''},'Pick a standard note…'));
+  (LISTS['Action Notes']||[]).forEach(function(o){sel.append(el('option',{value:o},o));});
+  sel.addEventListener('change',function(e){
+    e.stopPropagation();
+    const v=e.target.value; if(!v)return;
+    inp.value=v; sel.value=''; save(v);
+  });
+  wrap.append(inp,sel);
+  return wrap;
+}
 function inlineText(r,field,ph){
   if(!S.canWrite)return el('span',{class:'cellwrap'},r[field]||'—');
   const inp=el('input',{class:'inline-txt',value:r[field]||'',placeholder:ph||'Add a note…',
@@ -1445,7 +1490,7 @@ function renderTable(){
       el('td',{},inlineSelect(r,'skReg',['Yes','In Progress','No','No - Not Aware'],v=>({'Yes':'good','In Progress':'warn','No':'mute','No - Not Aware':'bad'}[v]||'mute'))),
       el('td',{},inlineSelect(r,'fiApplied',['Yes','No','Planning to Apply','Not Eligible'],v=>v==='Yes'?'good':'mute')),
       el('td',{},inlineSelect(r,'priority',['High','Medium','Low'],v=>v==='High'?'bad':v==='Medium'?'warn':'mute')),
-      el('td',{style:'min-width:220px'},inlineText(r,'notes')),
+      el('td',{style:'min-width:240px'},inlineNote(r)),
       el('td',{},el('button',{class:'btn sec sm',onclick:e=>{e.stopPropagation();openDetail(r.id);}},'Open')));
     tb.append(tr);
   });
@@ -1602,9 +1647,70 @@ function fallbackCopy(t,msg){const a=el('textarea',{});a.value=t;document.body.a
 function viewAdd(m){S.editing='new';m.append(el('div',{class:'page-h'},el('div',{},el('h1',{},'Add a Startup'),el('p',{},'Add one startup with all its details and founders'))));
   m.append(formInline());}
 function blankStartup(){return{id:'',name:'',date:todayStr(),source:'Event / Meeting',founders:[{name:'',email:'',phone:''}],email:'',phone:'',met:'No',event:'',sector:'',stage:'',district:'',cluster:'Bengaluru Urban',dpiit:'No',dpiitNo:'',skReg:'No',kitsNo:'',appliedSK:'No',appSKdate:'',kitsConfReg:'',fiApplied:'No',fiDate:'',incentives:[],kitsConfInc:'',planning:'',appStage:'Not Applied',aware:'No',reason:'',support:'',action:'',notes:'',priority:'Medium',fuReq:'No',fuDate:'',consent:'Yes',kitsActionNeeded:'',kitsStatus:'',kitsResponse:'',kitsActionTaken:'',callStatus:'Not Called',calledOn:'',calledBy:'',website:'',linkedin:'',cohort:'',subSector:'',yearFounded:'',companyProfile:'',product:'',offering:'',trl:'',teamStrength:'',extra:{},custom:{},history:[],remarks:[]};}
-function formInline(){const wrap=el('div',{class:'card'});wrap.append(formBody(S.editing==='new'?blankStartup():{...S.startups.find(x=>x.id===S.editing)},true));return wrap;}
+/* ---------- UNSAVED DRAFT ----------
+   The Add form used to be rebuilt from blank whenever the data refreshed —
+   switching browser tabs and coming back was enough to wipe everything typed,
+   because coming back triggers a reload of the startup list. The form now
+   keeps a draft, and a refresh never rebuilds a form that is open. */
+const DRAFT_KEY='kdem_draft_new_v1';
+function draftHasContent(r){
+  if(!r)return false;
+  const blank=blankStartup();
+  const skip={id:1,date:1,history:1,remarks:1,extra:1,custom:1,founders:1};
+  for(const k in r){
+    if(skip[k])continue;
+    const v=r[k], b=blank[k];
+    if(Array.isArray(v)){ if(v.length)return true; continue; }
+    if(v!=null&&v!==''&&v!==b)return true;
+  }
+  return (r.founders||[]).some(function(f){
+    return f&&((f.name||'').trim()||(f.email||'').trim()||(f.phone||'').trim());
+  });
+}
+function saveDraft(r){
+  S._draft=r;
+  try{ localStorage.setItem(DRAFT_KEY,JSON.stringify(r)); }catch(e){}
+}
+function loadDraft(){
+  if(S._draft)return S._draft;
+  try{
+    const s=localStorage.getItem(DRAFT_KEY);
+    if(s){const d=JSON.parse(s); if(draftHasContent(d))return d;}
+  }catch(e){}
+  return null;
+}
+function clearDraft(){
+  S._draft=null;
+  try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
+}
+function hasOpenForm(){ return S.view==='add'||!!S.editing; }
+let _draftT=null;
+function touchDraft(r){
+  clearTimeout(_draftT);
+  _draftT=setTimeout(function(){ if(draftHasContent(r))saveDraft(r); },250);
+}
+function formInline(){
+  const wrap=el('div',{class:'card'});
+  let rec;
+  if(S.editing==='new'){
+    const d=loadDraft();
+    rec=d||blankStartup();
+    if(d){
+      const bar=el('div',{class:'banner info',style:'margin:0 0 10px'},
+        'Unsaved draft restored — you can carry on where you left off. ');
+      const btn=el('button',{class:'btn sec sm',style:'margin-left:8px'},'Start a blank form');
+      btn.addEventListener('click',function(){clearDraft();renderMain();});
+      bar.append(btn);
+      wrap.append(bar);
+    }
+  }else{
+    rec={...S.startups.find(x=>x.id===S.editing)};
+  }
+  wrap.append(formBody(rec,true));
+  return wrap;
+}
 function formDrawer(){
-  const r=S.editing==='new'?blankStartup():{...S.startups.find(x=>x.id===S.editing)};
+  const r=S.editing==='new'?(loadDraft()||blankStartup()):{...S.startups.find(x=>x.id===S.editing)};
   const d=el('div',{class:'drawer'});
   d.append(el('div',{class:'dh'},el('h2',{},S.editing==='new'?'Add Startup':'Edit Startup'),el('button',{class:'x',onclick:()=>{S.editing=null;renderOverlay();}},'×')));
   d.append(formBody(r,false));
@@ -1613,6 +1719,13 @@ function formDrawer(){
 function formBody(r,inline){
   r=JSON.parse(JSON.stringify(r));
   const box=el('div',{class:inline?'cb':'db'});
+  // One listener for the whole form: the field handlers have already written
+  // to `r` by the time this fires, so the draft is always the live record.
+  if(S.editing==='new'){
+    const keep=function(){ touchDraft(r); };
+    box.addEventListener('input',keep);
+    box.addEventListener('change',keep);
+  }
   const g=el('div',{class:'fgrid'});
   const F={};
   const txt=(key,label,full)=>{const f=el('div',{class:'field'+(full?' full':'')});f.append(el('label',{},label));const i=el('input',{value:r[key]||'',oninput:e=>r[key]=e.target.value});F[key]=i;f.append(i);return f;};
@@ -1705,7 +1818,25 @@ function formBody(r,inline){
   g.append(txt('fuDate','Next Follow-up Date (YYYY-MM-DD)'));
   g.append(sel('consent','Consent to Contact?',['Yes','No']));
   g.append(ta('reason','Reason Not Applied / Challenge Faced'));
-  g.append(ta('notes','Action Notes / Remarks'));
+  (function(){
+    const f=el('div',{class:'field full'});
+    f.append(el('label',{},'Action Notes / Remarks'));
+    const t=el('textarea',{rows:'2',oninput:e=>r.notes=e.target.value});
+    t.value=r.notes||'';
+    const sel=el('select',{style:'margin-top:6px'});
+    sel.append(el('option',{value:''},'Pick a standard note…'));
+    (LISTS['Action Notes']||[]).forEach(function(o){sel.append(el('option',{value:o},o));});
+    sel.addEventListener('change',function(e){
+      const v=e.target.value; if(!v)return;
+      // append to whatever is already typed rather than overwriting it
+      const cur=(t.value||'').trim();
+      t.value=cur?(cur.replace(/\s*$/,'')+' '+v):v;
+      r.notes=t.value; sel.value='';
+      t.dispatchEvent(new Event('input',{bubbles:true}));
+    });
+    f.append(t,sel);
+    g.append(f);
+  })();
   box.append(g);
 
   const bar=el('div',{class:'formbar'});
@@ -1729,7 +1860,7 @@ async function saveForm(r,inline){
   r.history.push({action:isNew?'Created':'Edited',at:new Date().toISOString(),by:S.me||'',byName:S.meName||''});
   if(r.history.length>20)r.history=r.history.slice(-20);
   const ok=await writeStartup(r);
-  if(ok){toast(isNew?'Startup added':'Changes saved');S.editing=null;
+  if(ok){clearDraft();toast(isNew?'Startup added':'Changes saved');S.editing=null;
     if(inline){go('startups');}else{S.detail=isNew?null:r.id;renderOverlay();}
     renderMain();}
 }
@@ -1953,9 +2084,15 @@ function buildRec(sheet, raw, map){
 }
 
 /* Parse a workbook (already converted to {name, rows:[[...]]} sheets). */
+/* Sheets that are never startup data, whatever their column headings happen
+   to be. The exported Dashboard carries a "District / Startups / Group /
+   Cluster" table, and "Startups" reads as a name column — without this list a
+   re-uploaded export would import the dashboard's own rows as startups. */
+const NON_DATA_SHEETS=/^(dashboard|read ?me|readme|lists?|summary|instructions?|cover|index|notes?|pivot|chart|legend|key|about|help)\b/i;
 function parseSheets(rawSheets){
   const sheets=[];
   rawSheets.forEach(s=>{
+    if(NON_DATA_SHEETS.test(String(s.name||'').trim())) return;
     const rows=(s.rows||[]).filter(r=>r.some(c=>String(c==null?'':c).trim()!==''));
     if(rows.length<2) return;
     const hi=detectHeaderRow(rows);
@@ -1996,7 +2133,7 @@ function viewImport(m){
       btn.textContent='Click again to confirm';
       btn.onclick=()=>undoImport();
     }},'Undo this import');
-    if(!S.canWrite)btn.disabled=true;
+    if(!S.isAdmin){btn.disabled=true;btn.title='Only an admin can undo an import';btn.textContent='Undo this import (admin only)';}
     ub.append(btn);
     m.append(ub);
   }
@@ -2034,10 +2171,12 @@ function renderBatches(m){
     const act=tr.lastChild;
     if(b.deleted){
       tr.style.opacity='.72';
-    }else if(S.canWrite&&live>0){
+    }else if(S.isAdmin&&live>0){
       const del=el('button',{class:'btn sec sm'},'Delete these');
       del.addEventListener('click',()=>openDeleteBatch(b,live));
       act.append(del);
+    }else if(S.canWrite&&live>0){
+      act.append(el('span',{class:'note',title:'Only an admin can remove an uploaded file'},'Admin only'));
     }
     tb.append(tr);
     if(b.deleted&&b.deleteRemark){
@@ -2709,49 +2848,116 @@ function buildExportWorkbook(ExcelJS, rows, opts){
   }
 
   /* ---------- Dashboard ---------- */
+  /* ---------- DASHBOARD ----------
+     Every number here comes from the same kpis() and bengaluruSplit() the
+     on-screen dashboard uses, so the sheet and the website cannot drift
+     apart. Change a count in one place and both move together. */
   const db = wb.addWorksheet('Dashboard');
-  const c = f => rows.filter(f).length;
-  const k = {
-    total: rows.length,
-    dpiit: c(r=>r.dpiit==='Yes'),
-    skYes: c(r=>r.skReg==='Yes'),
-    skProg: c(r=>r.skReg==='In Progress'),
-    notReg: c(r=>r.skReg==='No'||r.skReg==='No - Not Aware'),
-    fiYes: c(r=>r.fiApplied==='Yes'),
-    fiProg: c(r=>EXP_FI_INPROGRESS.indexOf(r.appStage)>=0),
-    benefits: c(r=>r.appStage==='Benefit Received / Disbursed'),
-    met: c(r=>r.met==='Yes'),
-    kitsPending: c(r=>r.kitsStatus==='Pending with KITS'||r.kitsStatus==='In Progress at KITS')
+  const k  = kpis(rows);
+  const sp = bengaluruSplit(rows);
+  const pcOf = v => rows.length ? Math.round(v*100/rows.length)+'%' : '—';
+
+  let R = 1;
+  const title = t => {
+    db.mergeCells('A'+R+':D'+R);
+    const c = db.getCell(R,1);
+    c.value = t;
+    c.font = { name:'Arial', size:12, bold:true, color:{argb:'FFFFFFFF'} };
+    c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF1F3864'} };
+    c.alignment = { vertical:'middle' };
+    db.getRow(R).height = 20;
+    R += 1;
   };
-  db.mergeCells('A1:C1');
-  db.getCell('A1').value = 'KDEM STARTUP ECOSYSTEM — DASHBOARD';
-  db.getCell('A1').font = { name:'Arial', size:14, bold:true, color:{argb:'FFFFFFFF'} };
-  db.getCell('A1').fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF1F3864'} };
-  db.getCell('A2').value = 'Generated'; db.getCell('B2').value = new Date().toISOString().slice(0,16).replace('T',' ');
-  const kpi = [
-    ['Total Startups Engaged', k.total], ['DPIIT Recognised', k.dpiit],
-    ['Registered on Startup Karnataka', k.skYes], ['Registration In Progress', k.skProg],
-    ['Not Yet Registered', k.notReg], ['Fiscal Incentive Applied', k.fiYes],
-    ['Fiscal Incentive In Progress', k.fiProg], ['Benefits Received / Disbursed', k.benefits],
-    ['Founders Met in Person', k.met], ['Pending with KITS', k.kitsPending]
-  ];
-  kpi.forEach((p, i) => {
-    const rN = 4 + i;
-    db.getCell(rN,1).value = p[0]; db.getCell(rN,1).font = { name:'Arial', size:10 };
-    db.getCell(rN,2).value = p[1]; db.getCell(rN,2).font = { name:'Arial', size:11, bold:true };
+  const head = cols => {
+    cols.forEach((t,i)=>{
+      const c = db.getCell(R,i+1);
+      c.value = t;
+      c.font = { name:'Arial', size:9, bold:true, color:{argb:'FFFFFFFF'} };
+      c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF2E5FA3'} };
+    });
+    R += 1;
+  };
+  const row = (cells, bold) => {
+    cells.forEach((v,i)=>{
+      const c = db.getCell(R,i+1);
+      c.value = v;
+      c.font = { name:'Arial', size:10, bold:!!bold };
+    });
+    R += 1;
+  };
+  const gap = () => { R += 1; };
+
+  title('KDEM STARTUP ECOSYSTEM — DASHBOARD');
+  row(['Generated', new Date().toISOString().slice(0,16).replace('T',' ')]);
+  row(['Startups in this export', rows.length], true);
+  gap();
+
+  // --- the KPI tiles, in the same order as the website -------------------
+  title('HEADLINE NUMBERS');
+  head(['Measure','Count','% of total','']);
+  [
+    ['Total Startups Engaged',            k.total],
+    ['DPIIT Recognised',                  k.dpiit],
+    ['Registered on Startup Karnataka',   k.skYes],
+    ['Registration In Progress',          k.skProg],
+    ['Not Yet Registered',                k.skNo],
+    ['Fiscal Incentive Applied',          k.fiYes],
+    ['Fiscal Incentive In Progress',      k.fiProg],
+    ['Benefits Received / Disbursed',     k.benefits],
+    ['Bengaluru',                         k.bengaluru],
+    ['Beyond Bengaluru',                  k.beyond],
+    ['Other Location',                    k.otherLoc],
+    ['Founders Met in Person',            k.met],
+    ['Startups Called by KDEM',           k.called],
+    ['Still to Call',                     k.notCalled],
+    ['KITS Verification · In Progress',   k.kitsProg],
+    ['KITS Reply · Selected',             k.kitsSel],
+    ['KITS Reply · Rejected',             k.kitsRej]
+  ].forEach(p => row([p[0], p[1], pcOf(p[1])]));
+  gap();
+
+  // --- call status -------------------------------------------------------
+  title('KDEM CALLING PROGRESS');
+  head(['Call Status','Startups','% of total','']);
+  CALL_STATUS.forEach(cs => {
+    const n = rows.filter(r => (r.callStatus||'Not Called') === cs).length;
+    if (n) row([cs, n, pcOf(n)]);
   });
-  db.getCell(15,1).value = 'CLUSTER'; db.getCell(15,2).value = 'ENGAGED';
-  db.getCell(15,3).value = 'SK REGISTERED'; db.getCell(15,4).value = 'INCENTIVE APPLIED';
-  [1,2,3,4].forEach(cc=>{ db.getCell(15,cc).font={name:'Arial',size:9,bold:true,color:{argb:'FFFFFFFF'}};
-    db.getCell(15,cc).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF2E5FA3'}}; });
-  EXP_CLUSTERS.forEach((cl, i) => {
-    const rN = 16 + i, sub = rows.filter(r=>r.cluster===cl);
-    db.getCell(rN,1).value = cl;
-    db.getCell(rN,2).value = sub.length;
-    db.getCell(rN,3).value = sub.filter(r=>r.skReg==='Yes').length;
-    db.getCell(rN,4).value = sub.filter(r=>r.fiApplied==='Yes').length;
-  });
-  db.getColumn(1).width = 34; db.getColumn(2).width = 14; db.getColumn(3).width = 16; db.getColumn(4).width = 20;
+  gap();
+
+  // --- Bengaluru / Beyond / Other ----------------------------------------
+  title('LOCATION SPLIT');
+  head(['Group','Startups','% of total','']);
+  row(['Bengaluru (Bengaluru Urban)', sp.bengaluru, pcOf(sp.bengaluru)]);
+  row(['Beyond Bengaluru',            sp.beyond,    pcOf(sp.beyond)]);
+  row(['Other (outside Karnataka)',   sp.other,     pcOf(sp.other)]);
+  row(['District not recorded',       sp.unknown,   pcOf(sp.unknown)]);
+  row(['TOTAL', sp.bengaluru+sp.beyond+sp.other+sp.unknown, '100%'], true);
+  gap();
+
+  // --- cluster table -----------------------------------------------------
+  title('CLUSTERS');
+  head(['Cluster','Engaged','SK Registered','Incentive Applied']);
+  const clusterRow = (label, sub) => row([label, sub.length,
+    sub.filter(r=>r.skReg==='Yes').length,
+    sub.filter(r=>r.fiApplied==='Yes').length]);
+  clusterRow('Bengaluru Urban', rows.filter(r=>districtGroup(r.district)==='Bengaluru'));
+  BEYOND_CLUSTERS.forEach(cl => clusterRow(cl, rows.filter(r=>toCluster(r.district)===cl)));
+  const othRows = rows.filter(r=>districtGroup(r.district)==='Other');
+  if (othRows.length) clusterRow('Other', othRows);
+  const noDist = rows.filter(r=>!districtGroup(r.district));
+  if (noDist.length) clusterRow('District not recorded', noDist);
+  gap();
+
+  // --- every district ----------------------------------------------------
+  title('DISTRICTS');
+  head(['District','Startups','Group','Cluster']);
+  sp.districts.forEach(p => row([p[0], p[1], districtGroup(p[0]), toCluster(p[0])]));
+  if (sp.unknown) row(['(not recorded)', sp.unknown, '—', '—']);
+  row(['TOTAL', sp.districts.reduce((a,p)=>a+p[1],0) + sp.unknown, '', ''], true);
+
+  db.getColumn(1).width = 38; db.getColumn(2).width = 14;
+  db.getColumn(3).width = 20; db.getColumn(4).width = 22;
 
   /* ---------- READ ME ---------- */
   const rm = wb.addWorksheet('READ ME');
@@ -2814,6 +3020,7 @@ async function boot(){
     try{const meObj=await user.me();S.meName=(meObj&&(meObj.name||meObj.displayName))||'';}catch(e){}
     if(!S.meName&&isOwner)S.meName=ADMIN_NAME; // only as a last resort
     try{const w=user.can?user.can('data.write'):null;S.canWrite=(w===true)||(user.canEdit&&user.canEdit())||isOwner;}catch(e){S.canWrite=false;}
+    S.isAdmin=isOwner;            // only admins may delete anything
     renderWho();
   }
   const db=await safeUse('db');
@@ -2828,6 +3035,9 @@ async function boot(){
         S.dbReady=true;
         if(S.busy)return;                       // never re-render mid-import
         renderWho();
+        // Never rebuild a form the user is filling in. The data above is already
+        // up to date; only the repaint is skipped, and the next navigation shows it.
+        if(hasOpenForm())return;
         // repaint only what changed: the table is far cheaper than the whole view
         if(S.view==='startups'&&$('#sttable'))renderTable(); else renderMain();
       },err=>{/* keep seed data visible */});
@@ -2956,7 +3166,9 @@ window.__startApp=boot;
                    .order('id',{ascending:true})   // stable tiebreak: no gaps/dupes across pages
                    .range(from,from+PAGE-1);
         };
-        let loading=false;
+        // Declared before the loader because the loader's retry path reads them.
+        let loading=false, retryIn=2000;
+        let ch=null, retryT=null, dead=false;
         const load=async function(){
           if(loading)return; loading=true;
           try{
@@ -2967,7 +3179,14 @@ window.__startApp=boot;
             }catch(e){}
 
             const first=await q(0);
-            if(first.error){ if(err)err(mapErr(first.error)); return; }
+            if(first.error){
+              // Do not give up: a dropped connection or an expired token used to
+              // leave the app stuck on "Connecting to the live database…".
+              if(err)err(mapErr(first.error));
+              scheduleRetry();
+              return;
+            }
+            retryIn=2000;                       // a good read resets the backoff
             const seen=Object.create(null); const all=[];
             const push=function(list){
               for(let i=0;i<list.length;i++){
@@ -3006,28 +3225,72 @@ window.__startApp=boot;
           }finally{ loading=false; }
         };
         load();
-        // Apply each change in place instead of refetching every row — this is
-        // what makes other people's edits appear instantly without a reload.
-        const ch=sb.channel('st-'+Math.random().toString(36).slice(2))
-          .on('postgres_changes',{event:'*',schema:'public',table:'startups'},function(p){
-            try{
-              if(p.eventType==='DELETE'){
-                const id=p.old&&p.old.id; if(id)cache=cache.filter(function(r){return r.id!==id;});
-              }else if(p.new&&p.new.id){
-                const row={id:p.new.id,data:p.new.data};
-                const i=cache.findIndex(function(r){return r.id===row.id;});
-                if(i<0)cache.unshift(row); else cache[i]=row;
+
+        /* ---------- staying connected ----------
+           Two things used to break and never recover: a failed first read left
+           the app on "Connecting…" for good, and a dropped realtime socket was
+           never resubscribed, so edits by other people silently stopped
+           arriving while the dot still looked fine. Both now retry with a
+           backoff, and the socket is rebuilt from scratch when it dies. */
+        function markLive(on){
+          try{
+            if(window.__setLive)window.__setLive(!!on);
+          }catch(e){}
+        }
+        function scheduleRetry(){
+          if(dead)return;
+          clearTimeout(retryT);
+          retryT=setTimeout(function(){ load(); resubscribe(); },retryIn);
+          retryIn=Math.min(retryIn*2,60000);     // 2s, 4s, 8s … capped at a minute
+        }
+        function onChange(p){
+          try{
+            if(p.eventType==='DELETE'){
+              const id=p.old&&p.old.id; if(id)cache=cache.filter(function(r){return r.id!==id;});
+            }else if(p.new&&p.new.id){
+              const row={id:p.new.id,data:p.new.data};
+              const i=cache.findIndex(function(r){return r.id===row.id;});
+              if(i<0)cache.unshift(row); else cache[i]=row;
+            }
+            emit(); writeCache(cache);
+          }catch(e){clearTimeout(deb);deb=setTimeout(load,400);}
+        }
+        function resubscribe(){
+          if(dead)return;
+          try{ if(ch)sb.removeChannel(ch); }catch(e){}
+          ch=sb.channel('st-'+Date.now().toString(36)+Math.random().toString(36).slice(2))
+            .on('postgres_changes',{event:'*',schema:'public',table:'startups'},onChange)
+            .subscribe(function(status){
+              if(status==='SUBSCRIBED'){ retryIn=2000; markLive(true); load(); }
+              else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED'){
+                markLive(false); scheduleRetry();
               }
-              emit(); writeCache(cache);
-            }catch(e){clearTimeout(deb);deb=setTimeout(load,400);}
-          })
-          .subscribe(function(status){ if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){setTimeout(load,2000);} });
+            });
+        }
+        resubscribe();
+
         // safety net: reconcile with the server every few minutes
         const poll=setInterval(load,180000);
         // and whenever the operator comes back to the tab
-        const onVis=function(){ if(document.visibilityState==='visible')load(); };
+        const onVis=function(){
+          if(document.visibilityState==='visible'){
+            load();
+            // a socket that died while the tab was hidden looks fine until used
+            if(!ch||ch.state!=='joined')resubscribe();
+          }
+        };
+        const onOnline=function(){ retryIn=2000; load(); resubscribe(); };
         document.addEventListener('visibilitychange',onVis);
-        return function(){try{clearInterval(poll);document.removeEventListener('visibilitychange',onVis);sb.removeChannel(ch);}catch(e){}};
+        if(window.addEventListener)window.addEventListener('online',onOnline);
+        return function(){
+          dead=true;
+          try{
+            clearInterval(poll); clearTimeout(retryT);
+            document.removeEventListener('visibilitychange',onVis);
+            if(window.removeEventListener)window.removeEventListener('online',onOnline);
+            if(ch)sb.removeChannel(ch);
+          }catch(e){}
+        };
       },
       deleteMany:async function(ids){
         const SIZE=200;
